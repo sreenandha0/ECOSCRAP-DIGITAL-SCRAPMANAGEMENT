@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EcoScrap — Smart Scrap Management System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #F8FAFC;
+      --primary: #10B981;
+      --secondary: #047857;
+      --text-main: #0F172A;
+      --text-muted: #64748B;
+      --border: #E2E8F0;
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Plus Jakarta Sans', sans-serif;
+      --transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      line-height: 1.7;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      letter-spacing: -0.01em;
+    }
+
+    /* Container with luxurious margin */
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 40px;
+    }
+
+    /* Navigation */
+    header {
+      width: 100%;
+      padding: 40px 0;
+      z-index: 100;
+    }
+
+    .nav-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 20px;
+      color: var(--text-main);
+      text-decoration: none;
+      letter-spacing: -0.03em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .logo-bar {
+      width: 4px;
+      height: 16px;
+      background: var(--primary);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 40px;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 14px;
+      transition: var(--transition);
+    }
+
+    .nav-links a:hover {
+      color: var(--text-main);
+    }
+
+    /* Hero Section */
+    .hero-section {
+      padding: 100px 0 160px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero-container {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 80px;
+      align-items: center;
+    }
+
+    .hero-content h1 {
+      font-family: var(--font-display);
+      font-size: 64px;
+      font-weight: 300;
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      color: var(--text-main);
+      margin-bottom: 32px;
+    }
+
+    .hero-content p {
+      font-size: 18px;
+      color: var(--text-muted);
+      margin-bottom: 48px;
+      font-weight: 300;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 12px 28px;
+      border-radius: 4px;
+      font-weight: 500;
+      text-decoration: none;
+      font-size: 14px;
+      transition: var(--transition);
+      letter-spacing: -0.01em;
+    }
+
+    .btn-dark {
+      background: var(--text-main);
+      color: var(--bg);
+    }
+
+    .btn-dark:hover {
+      background: var(--secondary);
+      transform: translateY(-1px);
+    }
+
+    .hero-image-wrap {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      background: #FFF;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.02);
+    }
+
+    .hero-image-wrap img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 4px;
+    }
+
+    /* Sections */
+    section {
+      padding: 140px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-num {
+      font-family: var(--font-display);
+      font-size: 16px;
+      color: var(--primary);
+      margin-bottom: 24px;
+      display: block;
+      font-weight: 600;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 40px;
+      font-weight: 300;
+      letter-spacing: -0.03em;
+      margin-bottom: 32px;
+    }
+
+    .section-intro {
+      font-size: 20px;
+      color: var(--text-muted);
+      max-width: 700px;
+      margin-bottom: 80px;
+      font-weight: 300;
+    }
+
+    /* How It Works List */
+    .process-list {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 60px;
+    }
+
+    .process-step {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .process-step-num {
+      font-family: var(--font-display);
+      font-size: 14px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+    }
+
+    .process-step h3 {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 400;
+      letter-spacing: -0.02em;
+    }
+
+    .process-step p {
+      font-size: 15px;
+      color: var(--text-muted);
+      font-weight: 300;
+    }
+
+    /* Features Split */
+    .features-split {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 80px;
+      align-items: center;
+    }
+
+    .features-content {
+      display: flex;
+      flex-direction: column;
+      gap: 40px;
+    }
+
+    .feature-block {
+      border-left: 2px solid var(--border);
+      padding-left: 24px;
+      transition: var(--transition);
+    }
+
+    .feature-block:hover {
+      border-left-color: var(--primary);
+    }
+
+    .feature-block h4 {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+
+    .feature-block p {
+      font-size: 14px;
+      color: var(--text-muted);
+      font-weight: 300;
+    }
+
+    .features-img-box {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      background: #FFF;
+    }
+
+    .features-img-box img {
+      width: 100%;
+      height: auto;
+      border-radius: 4px;
+      display: block;
+    }
+
+    /* Dual Workflow Visualisation */
+    .workflow-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+    }
+
+    .flow-card {
+      border: 1px solid var(--border);
+      background: #FFF;
+      border-radius: 8px;
+      padding: 48px;
+    }
+
+    .flow-card h3 {
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 400;
+      margin-bottom: 32px;
+      letter-spacing: -0.02em;
+    }
+
+    .flow-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .flow-item {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .flow-index {
+      font-family: var(--font-display);
+      font-size: 13px;
+      color: var(--primary);
+      background: rgba(16, 185, 129, 0.06);
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .flow-text h5 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .flow-text p {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 300;
+    }
+
+    /* Statistics Section */
+    .stats-layout {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 40px;
+    }
+
+    .stat-item {
+      border-left: 1px solid var(--border);
+      padding-left: 24px;
+    }
+
+    .stat-num {
+      font-family: var(--font-display);
+      font-size: 48px;
+      font-weight: 300;
+      line-height: 1;
+      color: var(--text-main);
+      margin-bottom: 12px;
+      letter-spacing: -0.03em;
+    }
+
+    .stat-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 500;
+    }
+
+    /* CTA Section */
+    .cta-section {
+      text-align: center;
+      padding: 160px 0;
+    }
+
+    .cta-section h2 {
+      font-family: var(--font-display);
+      font-size: 48px;
+      font-weight: 300;
+      letter-spacing: -0.03em;
+      margin-bottom: 24px;
+    }
+
+    .cta-section p {
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto 48px auto;
+      font-weight: 300;
+    }
+
+    /* Footer */
+    footer {
+      padding: 80px 0 60px 0;
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    .footer-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-logo {
+      font-family: var(--font-display);
+      font-weight: 600;
+      color: var(--text-main);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Responsive */
+    @media (max-width: 968px) {
+      .hero-container {
+        grid-template-columns: 1fr;
+        gap: 60px;
+      }
+      .hero-content h1 { font-size: 48px; }
+      .process-list {
+        grid-template-columns: 1fr;
+        gap: 40px;
+      }
+      .features-split {
+        grid-template-columns: 1fr;
+        gap: 60px;
+      }
+      .workflow-grid {
+        grid-template-columns: 1fr;
+        gap: 40px;
+      }
+      .stats-layout {
+        grid-template-columns: 1fr 1fr;
+      }
+      .footer-container {
+        flex-direction: column;
+        gap: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header>
+    <div class="container nav-container">
+      <a href="#" class="logo">
+        <span class="logo-bar"></span>EcoScrap
+      </a>
+      <nav class="nav-links">
+        <a href="#process">Process</a>
+        <a href="#features">Features</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#stats">Impact</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section" style="border-top: 1px solid var(--border);">
+    <div class="container hero-container">
+      <div class="hero-content">
+        <h1>Smart scrap coordination.</h1>
+        <p>A pristine logistics standard connecting household and commercial waste creators with verified resource collection routes. Zero waste, optimized.</p>
+        <a href="#" class="btn btn-dark">Start Collection Request</a>
+      </div>
+      <div class="hero-image-wrap">
+        <img src="../assets/dashboard_mockup.png" alt="SaaS Dashboard Preview">
+      </div>
+    </div>
+  </section>
+
+  <!-- How it Works -->
+  <section id="process">
+    <div class="container">
+      <span class="section-num">01</span>
+      <h2 class="section-title">The Coordination Model</h2>
+      <p class="section-intro">EcoScrap structures waste management workflows by establishing verified handshakes between scrap creators and optimized collector routes.</p>
+      <div class="process-list">
+        <div class="process-step">
+          <div class="process-step-num">01 / Cataloging</div>
+          <h3>Schedule Pickup</h3>
+          <p>Detail your recyclable materials on our digital platform to receive immediate estimates based on scrap categories.</p>
+        </div>
+        <div class="process-step">
+          <div class="process-step-num">02 / Route Calculation</div>
+          <h3>Optimized Dispatch</h3>
+          <p>Our routing layer assigns the pickup to the nearest verified recycling collection vehicle, saving emissions.</p>
+        </div>
+        <div class="process-step">
+          <div class="process-step-num">03 / Reconciliation</div>
+          <h3>Payout & ESG Receipts</h3>
+          <p>Verification at pickup triggers digital wallets payouts and records emissions reduction directly to your ledger.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section id="features">
+    <div class="container features-split">
+      <div class="features-content">
+        <div>
+          <span class="section-num">02</span>
+          <h2 class="section-title">Built for Purity and Efficiency</h2>
+        </div>
+        <div class="feature-block">
+          <h4>Ingestion Classification</h4>
+          <p>Real-time category logging yields higher recycling purity and exact pricing.</p>
+        </div>
+        <div class="feature-block">
+          <h4>Coordinated Fleet Routing</h4>
+          <p>Smart pathing decreases collector transportation carbon footprint by 32%.</p>
+        </div>
+        <div class="feature-block">
+          <h4>Verified Ledger Outputs</h4>
+          <p>Direct exportable CSV and API options for reporting corporate sustainability metrics.</p>
+        </div>
+      </div>
+      <div class="features-img-box">
+        <img src="../assets/collector_app.png" alt="Collector Mobile UI">
+      </div>
+    </div>
+  </section>
+
+  <!-- Workflow Visualization -->
+  <section id="workflow">
+    <div class="container">
+      <span class="section-num">03</span>
+      <h2 class="section-title">Two-Sided Coordination</h2>
+      <p class="section-intro">Every transaction is validated by matching interface sequences on both sides of the marketplace.</p>
+      <div class="workflow-grid">
+        <div class="flow-card">
+          <h3>For Waste Creators</h3>
+          <div class="flow-steps">
+            <div class="flow-item">
+              <div class="flow-index">1</div>
+              <div class="flow-text">
+                <h5>Publish Request</h5>
+                <p>Input category, estimated weights, and available timeframes.</p>
+              </div>
+            </div>
+            <div class="flow-item">
+              <div class="flow-index">2</div>
+              <div class="flow-text">
+                <h5>Track Dispatch</h5>
+                <p>Monitor live vehicle location maps as they navigate optimized paths.</p>
+              </div>
+            </div>
+            <div class="flow-item">
+              <div class="flow-index">3</div>
+              <div class="flow-text">
+                <h5>Accept Handshake</h5>
+                <p>Confirm the verified digital weight on-site to release collector payouts.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="flow-card">
+          <h3>For Scrap Collectors</h3>
+          <div class="flow-steps">
+            <div class="flow-item">
+              <div class="flow-index">1</div>
+              <div class="flow-text">
+                <h5>Receive Optimized Route</h5>
+                <p>Access scheduled pickup coordinates grouped sequentially to minimize travel.</p>
+              </div>
+            </div>
+            <div class="flow-item">
+              <div class="flow-index">2</div>
+              <div class="flow-text">
+                <h5>Verify & Scan</h5>
+                <p>Weigh the scrap physically and update ingestion category status.</p>
+              </div>
+            </div>
+            <div class="flow-item">
+              <div class="flow-index">3</div>
+              <div class="flow-text">
+                <h5>Settle Transaction</h5>
+                <p>Collect digital payout cuts and route remaining materials to recyclers.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Statistics -->
+  <section id="stats">
+    <div class="container">
+      <span class="section-num">04</span>
+      <h2 class="section-title">Logistics Scaled</h2>
+      <p class="section-intro">Measurable ecological conservation achieved through smart digital planning.</p>
+      <div class="stats-layout">
+        <div class="stat-item">
+          <div class="stat-num">120K+</div>
+          <div class="stat-label">Tons Processed</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num">45K</div>
+          <div class="stat-label">Verified Collectors</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num">98.4%</div>
+          <div class="stat-label">Schedule Accuracy</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num">-32%</div>
+          <div class="stat-label">Route Emissions</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Section -->
+  <section class="cta-section">
+    <div class="container">
+      <h2>Modernize your scrap cycles today.</h2>
+      <p>Initiate scalable, carbon-audited scrap recovery configurations for your household or facility.</p>
+      <a href="#" class="btn btn-dark">Get Started</a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container footer-container">
+      <a href="#" class="footer-logo">
+        <span class="logo-bar"></span>EcoScrap
+      </a>
+      <div>&copy; 2026 EcoScrap Inc. All rights reserved.</div>
+    </div>
+  </footer>
+
+</body>
+</html>
