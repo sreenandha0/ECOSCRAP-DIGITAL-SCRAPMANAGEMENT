@@ -1,11 +1,20 @@
 <?php
-session_start();
+// 1. Session Setup with Mobile/LocalTunnel Cookie Compatibility
+if (session_status() === PHP_SESSION_NONE) {
+    session_set_cookie_params([
+        'lifetime' => 86400,
+        'path'     => '/',
+        'httponly' => true,
+        'samesite' => 'Lax'
+    ]);
+    session_start();
+}
 
 require_once "../includes/db.php";
 require_once "../includes/functions.php";
 
-// 1. Authorization Check
-if (!isset($_SESSION['collector_id']) || $_SESSION['role'] !== "Collector") {
+// 2. Authorization Check
+if (!isset($_SESSION['collector_id']) || ($_SESSION['role'] ?? '') !== "Collector") {
     redirect("../login.php");
     exit();
 }
@@ -14,79 +23,95 @@ $collector_id = (int)$_SESSION['collector_id'];
 $id           = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $message      = "";
 
-// 2. Fetch Active Collector's Name dynamically from 'scrapcollector' table
-$collector_name = $_SESSION['collector_name'] ?? 'Collector';
-
-$stmt_col = $conn->prepare("SELECT name FROM scrapcollector WHERE collector_id = ?");
-$stmt_col->bind_param("i", $collector_id);
-$stmt_col->execute();
-$res_col = $stmt_col->get_result();
-if ($col_data = $res_col->fetch_assoc()) {
-    $collector_name = $col_data['name'];
-    $_SESSION['collector_name'] = $collector_name;
+// 3. Generate CSRF Token if missing
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
-$stmt_col->close();
+
+// 4. Fetch Collector Name
+$collector_name = $_SESSION['collector_name'] ?? 'Collector';
+$stmt_col = $conn->prepare("SELECT name FROM scrapcollector WHERE collector_id = ?");
+if ($stmt_col) {
+    $stmt_col->bind_param("i", $collector_id);
+    $stmt_col->execute();
+    $res_col = $stmt_col->get_result();
+    if ($col_data = $res_col->fetch_assoc()) {
+        $collector_name = $col_data['name'];
+        $_SESSION['collector_name'] = $collector_name;
+    }
+    $stmt_col->close();
+}
 
 /* ----------------------------------
    CONFIRM & VERIFY PICKUP SUBMISSION
 ---------------------------------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
-    verifyCsrfToken(); // CSRF Protection
-
-    $activity_id = (int)$_POST['activity_id'];
-    $weight      = (float)$_POST['scrap_weight'];
-    $amount      = (float)$_POST['amount'];
-    $remarks     = trim($_POST['remarks'] ?? '');
-
-    try {
-        // Validation check
-        if ($weight <= 0 || $amount < 0) {
-            throw new Exception("Please enter a valid scrap weight and amount.");
+    // CSRF Check
+    $posted_token = $_POST['csrf_token'] ?? '';
+    if (!empty($_SESSION['csrf_token']) && !hash_equals($_SESSION['csrf_token'], $posted_token)) {
+        if (function_exists('verifyCsrfToken')) {
+            try {
+                verifyCsrfToken();
+            } catch (Exception $e) {
+                $message = "Session token expired. Please refresh the page and try again.";
+            }
+        } else {
+            $message = "Invalid security token. Please refresh and try again.";
         }
+    }
 
-        $conn->begin_transaction();
+    if (empty($message)) {
+        $activity_id = (int)$_POST['activity_id'];
+        $weight      = (float)$_POST['scrap_weight'];
+        $amount      = (float)$_POST['amount'];
+        $remarks     = trim($_POST['remarks'] ?? '');
 
-        // 1. Update activity record
-        $sql = "UPDATE activity
-                SET scrap_weight = ?,
-                    amount = ?,
-                    remarks = ?,
-                    status = 'Completed',
-                    qr_status = 'Used',
-                    completed_at = NOW()
-                WHERE activity_id = ? AND collector_id = ? AND status != 'Completed'";
+        try {
+            if ($weight <= 0 || $amount < 0) {
+                throw new Exception("Please enter a valid scrap weight and amount.");
+            }
 
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("ddsii", $weight, $amount, $remarks, $activity_id, $collector_id);
-        $stmt->execute();
+            $conn->begin_transaction();
 
-        if ($stmt->affected_rows === 0) {
-            throw new Exception("Unable to confirm pickup. It may already be completed or assigned to another route.");
-        }
-        $stmt->close();
+            // Updated query matching exact database columns: qr_status & completed_at
+            $sql = "UPDATE activity
+                    SET scrap_weight = ?,
+                        amount = ?,
+                        remarks = ?,
+                        status = 'Completed',
+                        qr_status = 'Used',
+                        completed_at = NOW()
+                    WHERE activity_id = ? AND collector_id = ? AND status != 'Completed'";
 
-        // 2. Reset Collector status to 'Available'
-        $stmt_avail = $conn->prepare("UPDATE scrapcollector SET availability_status = 'Available' WHERE collector_id = ?");
-        $stmt_avail->bind_param("i", $collector_id);
-        $stmt_avail->execute();
-        $stmt_avail->close();
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param("ddsii", $weight, $amount, $remarks, $activity_id, $collector_id);
+            $stmt->execute();
 
-        $conn->commit();
+            if ($stmt->affected_rows === 0) {
+                throw new Exception("Unable to confirm pickup. It may already be completed or assigned to another collector.");
+            }
+            $stmt->close();
 
-        $_SESSION['flash_success'] = "Pickup completed successfully!";
-        header("Location: dashboard.php");
-        exit();
+            // Increment completed pickups and set status to 'Available'
+            $stmt_avail = $conn->prepare("UPDATE scrapcollector SET availability_status = 'Available', completed_pickups = completed_pickups + 1 WHERE collector_id = ?");
+            $stmt_avail->bind_param("i", $collector_id);
+            $stmt_avail->execute();
+            $stmt_avail->close();
 
-    } catch (Exception $e) {
-        if ($conn->inTransaction()) {
+            $conn->commit();
+
+            $_SESSION['flash_success'] = "Pickup completed successfully!";
+            header("Location: dashboard.php");
+            exit();
+
+        } catch (Exception $e) {
             $conn->rollback();
+            $message = $e->getMessage();
         }
-        $message = $e->getMessage();
     }
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 
@@ -119,12 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
             --text-muted: #64748B;
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Inter', sans-serif;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
 
         body {
             background-color: var(--bg-color);
@@ -162,32 +182,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
         }
 
         .brand-badge {
-            width: 36px;
-            height: 36px;
+            width: 36px; height: 36px;
             background: rgba(16, 185, 129, 0.15);
             color: var(--primary);
             border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             font-size: 20px;
         }
 
-        .user-profile {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
+        .user-profile { display: flex; align-items: center; gap: 16px; }
 
         .icon-btn {
-            width: 40px;
-            height: 40px;
+            width: 40px; height: 40px;
             border-radius: 10px;
             border: 1px solid var(--border-color);
             background: #fff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             color: var(--text-muted);
             cursor: pointer;
             transition: background 0.2s;
@@ -197,26 +207,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
         .icon-btn:hover { background: #f8fafc; }
 
         .avatar-pill {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: #fff;
-            padding: 6px 14px 6px 8px;
-            border-radius: 30px;
-            border: 1px solid var(--border-color);
+            display: flex; align-items: center; gap: 10px;
+            background: #fff; padding: 6px 14px 6px 8px;
+            border-radius: 30px; border: 1px solid var(--border-color);
         }
 
         .avatar {
-            width: 28px;
-            height: 28px;
-            background: var(--secondary);
-            color: #fff;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 13px;
-            font-weight: 700;
+            width: 28px; height: 28px;
+            background: var(--secondary); color: #fff;
+            border-radius: 50%; display: flex;
+            align-items: center; justify-content: center;
+            font-size: 13px; font-weight: 700;
         }
 
         .content-area {
@@ -227,22 +228,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
             flex: 1;
         }
 
-        .page-header {
-            text-align: center;
-            margin-bottom: 28px;
-        }
-
-        .page-header h1 {
-            font-size: 26px;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-        }
-
-        .page-header p {
-            color: var(--text-muted);
-            font-size: 14px;
-            margin-top: 4px;
-        }
+        .page-header { text-align: center; margin-bottom: 28px; }
+        .page-header h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+        .page-header p { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
 
         .scanner-card {
             background: var(--surface-card);
@@ -254,17 +242,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
         }
 
         .camera-viewport {
-            width: 100%;
-            max-width: 400px;
-            height: 320px;
-            margin: 0 auto;
-            border-radius: 16px;
-            overflow: hidden;
-            position: relative;
+            width: 100%; max-width: 400px; height: 320px;
+            margin: 0 auto; border-radius: 16px;
+            overflow: hidden; position: relative;
             background: #090d16;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             border: 2px solid var(--border-color);
         }
 
@@ -272,12 +254,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
         #reader video { object-fit: cover !important; width: 100% !important; height: 100% !important; }
 
         .scan-overlay {
-            position: absolute;
-            top: 50%; left: 50%;
+            position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
             width: 200px; height: 200px;
-            pointer-events: none;
-            z-index: 10;
+            pointer-events: none; z-index: 10;
         }
 
         .corner {
@@ -367,7 +347,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
 <body>
 
-    <!-- Header Topbar displaying real Collector Name -->
+    <!-- Header Topbar -->
     <header class="topbar">
         <a href="dashboard.php" class="brand-header">
             <div class="brand-badge"><i class="ri-leaf-fill"></i></div>
@@ -435,42 +415,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
             <script>
                 let html5QrCode = null;
 
-                function onScanSuccess(decodedText) {
-                    let activityId = null;
-
-                    // 1. Check if scanned string is JSON
-                    try {
-                        const json = JSON.parse(decodedText);
-                        if (json && json.activity_id) {
-                            activityId = json.activity_id;
-                        }
-                    } catch (e) {
-                        // Not JSON
-                    }
-
-                    // 2. Check if scanned string is a URL with ?id=
-                    if (!activityId) {
-                        try {
-                            const url = new URL(decodedText);
-                            activityId = url.searchParams.get("id");
-                        } catch (e) {
-                            // Not URL
-                        }
-                    }
-
-                    // 3. Fallback: Direct numeric ID
-                    if (!activityId && !isNaN(decodedText.trim())) {
-                        activityId = decodedText.trim();
-                    }
-
-                    // Redirect if valid activity ID found
-                    if (activityId) {
-                        window.location.href = "verify_qr.php?id=" + encodeURIComponent(activityId);
-                    } else {
-                        alert("Invalid or unrecognized QR code format.");
-                    }
-                }
-
                 async function stopScannerIfScanning() {
                     if (html5QrCode && html5QrCode.isScanning) {
                         try {
@@ -478,6 +422,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                         } catch (err) {
                             console.error("Error stopping scanner:", err);
                         }
+                    }
+                }
+
+                async function onScanSuccess(decodedText) {
+                    let activityId = null;
+
+                    // 1. JSON check
+                    try {
+                        const json = JSON.parse(decodedText);
+                        if (json && (json.activity_id || json.id)) {
+                            activityId = json.activity_id || json.id;
+                        }
+                    } catch (e) {}
+
+                    // 2. URL search check
+                    if (!activityId) {
+                        try {
+                            const url = new URL(decodedText);
+                            activityId = url.searchParams.get("id");
+                        } catch (e) {}
+                    }
+
+                    // 3. Fallback direct numeric ID
+                    if (!activityId && !isNaN(decodedText.trim())) {
+                        activityId = decodedText.trim();
+                    }
+
+                    if (activityId) {
+                        await stopScannerIfScanning();
+                        window.location.href = "verify_qr.php?id=" + encodeURIComponent(activityId);
+                    } else {
+                        alert("Invalid or unrecognized QR code format.");
                     }
                 }
 
@@ -520,11 +496,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
         <?php } else {
 
-            // FETCH ACTIVITY RECORD & JOIN USER NAME
+            // FETCH ACTIVITY RECORD
             $stmt = $conn->prepare("
                 SELECT a.*, u.name AS customer_name 
                 FROM activity a 
-                LEFT JOIN users u ON a.user_id = u.user_id 
+                LEFT JOIN user u ON a.user_id = u.user_id 
                 WHERE a.activity_id = ? AND a.collector_id = ?
             ");
             $stmt->bind_param("ii", $id, $collector_id);
@@ -545,8 +521,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
             <?php } else {
                 $row = $result->fetch_assoc();
+                $qr_status_val = $row['qr_status'] ?? '';
 
-                if (isset($row['qr_status']) && $row['qr_status'] === "Used") { ?>
+                if ($qr_status_val === "Used" || $row['status'] === "Completed") { ?>
 
                     <!-- ALREADY USED QR VIEW -->
                     <div class="customer-card">
@@ -563,8 +540,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                                 <div class="info-value">#<?= htmlspecialchars($row['activity_id']); ?></div>
                             </div>
                             <div class="info-item">
-                                <div class="info-label">Completed On</div>
-                                <div class="info-value"><?= date('d M Y, h:i A', strtotime($row['completed_at'] ?? 'now')); ?></div>
+                                <div class="info-label">Status</div>
+                                <div class="info-value"><?= htmlspecialchars($row['status']); ?></div>
                             </div>
                         </div>
 
@@ -580,8 +557,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                             <span>QR Verified Successfully</span>
                         </div>
 
-                        <form method="POST" style="margin-top: 20px;">
-                            <?php if (function_exists('csrf_field')) { csrf_field(); } ?>
+                        <form method="POST" action="verify_qr.php?id=<?= htmlspecialchars($row['activity_id']); ?>" style="margin-top: 20px;">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']); ?>">
                             <input type="hidden" name="activity_id" value="<?= htmlspecialchars($row['activity_id']); ?>">
 
                             <div class="info-grid">
@@ -609,7 +586,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                                 </div>
                                 <div class="info-item" style="grid-column: span 2;">
                                     <div class="info-label">Collector Remarks</div>
-                                    <input type="text" name="remarks" class="form-control" placeholder="Optional notes (e.g. Paid cash, material verified)" value="<?= htmlspecialchars($row['remarks'] ?? ''); ?>">
+                                    <input type="text" name="remarks" class="form-control" value="<?= htmlspecialchars($row['remarks'] ?? ''); ?>" placeholder="Optional notes (e.g. Paid cash, material verified)">
                                 </div>
                             </div>
 
@@ -621,7 +598,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                         <a href="verify_qr.php" class="btn btn-secondary" style="width: 100%; margin-top: 12px;"><i class="ri-arrow-left-line"></i> Cancel / Scan Another</a>
                     </div>
 
-            <?php }
+            <?php 
+                }
             }
             $stmt->close();
         } ?>
