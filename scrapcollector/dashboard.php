@@ -5,19 +5,16 @@ require_once "../includes/db.php";
 require_once "../includes/functions.php";
 
 // Protect Page
-if (
-    !isset($_SESSION['collector_id']) ||
-    $_SESSION['role'] !== "Collector"
-) {
+if (!isset($_SESSION['collector_id']) || $_SESSION['role'] !== "Collector") {
     redirect("../login.php");
 }
 
-$collector_id = $_SESSION['collector_id'];
+$collector_id = (int)$_SESSION['collector_id'];
 
 // ============================
 // Collector Profile Info
 // ============================
-$stmt = $conn->prepare("SELECT * FROM scrapcollector WHERE collector_id = ?");
+$stmt = $conn->prepare("SELECT collector_id, name, email, phone, vehicle_no, pincode, availability_status FROM scrapcollector WHERE collector_id = ?");
 $stmt->bind_param("i", $collector_id);
 $stmt->execute();
 $collector = $stmt->get_result()->fetch_assoc();
@@ -32,10 +29,10 @@ if (!$collector) {
 // ============================
 $stmt = $conn->prepare("
     SELECT 
-        SUM(CASE WHEN status = 'Assigned' THEN 1 ELSE 0 END) AS assigned_count,
-        SUM(CASE WHEN status = 'Completed' AND preferred_pickup_date = CURDATE() THEN 1 ELSE 0 END) AS completed_today_count,
-        SUM(CASE WHEN status = 'In Progress' OR status = 'Pending' THEN 1 ELSE 0 END) AS pending_verification_count,
-        SUM(CASE WHEN status = 'Completed' THEN amount ELSE 0 END) AS total_earnings
+        COALESCE(SUM(CASE WHEN status = 'Assigned' THEN 1 ELSE 0 END), 0) AS assigned_count,
+        COALESCE(SUM(CASE WHEN status = 'Completed' AND preferred_pickup_date = CURDATE() THEN 1 ELSE 0 END), 0) AS completed_today_count,
+        COALESCE(SUM(CASE WHEN status = 'In Progress' OR status = 'Pending' THEN 1 ELSE 0 END), 0) AS pending_verification_count,
+        COALESCE(SUM(CASE WHEN status = 'Completed' THEN amount ELSE 0 END), 0) AS total_earnings
     FROM activity
     WHERE collector_id = ?
 ");
@@ -45,10 +42,10 @@ $stmt->execute();
 $counts = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-$assigned            = (int)($counts['assigned_count'] ?? 8);
-$completedToday      = (int)($counts['completed_today_count'] ?? 5);
-$pendingVerification = (int)($counts['pending_verification_count'] ?? 3);
-$earnings            = (int)($counts['total_earnings'] ?? 1250);
+$assigned            = (int)($counts['assigned_count'] ?? 0);
+$completedToday      = (int)($counts['completed_today_count'] ?? 0);
+$pendingVerification = (int)($counts['pending_verification_count'] ?? 0);
+$earnings            = (int)($counts['total_earnings'] ?? 0);
 
 // ============================
 // Today's Assigned Pickups
@@ -70,13 +67,6 @@ $stmt->bind_param("i", $collector_id);
 $stmt->execute();
 $todaysPickups = $stmt->get_result();
 $stmt->close();
-
-// Fallback Mock Data if Query Returns Empty
-$mockPickups = [
-    ['activity_id' => 101, 'customer_name' => 'Rahul Nair', 'scrap_type' => 'E-Waste', 'scrap_weight' => 12, 'pickup_time' => '10 AM', 'status' => 'Assigned', 'action' => 'View Details'],
-    ['activity_id' => 102, 'customer_name' => 'Anjali Thomas', 'scrap_type' => 'Plastic', 'scrap_weight' => 8, 'pickup_time' => '11 AM', 'status' => 'Assigned', 'action' => 'Start Pickup'],
-    ['activity_id' => 103, 'customer_name' => 'Meera Joseph', 'scrap_type' => 'Paper', 'scrap_weight' => 18, 'pickup_time' => '2 PM', 'status' => 'Assigned', 'action' => 'View QR']
-];
 
 // ============================
 // Recent Activity Feed
@@ -244,7 +234,6 @@ $stmt->close();
             gap: 20px;
         }
 
-        /* Notification Bell Pulse */
         .notification-btn {
             position: relative;
             background: #f1f5f9;
@@ -340,7 +329,6 @@ $stmt->close();
             animation: fadeInUpCard 0.5s var(--transition) forwards;
         }
 
-        /* Hover Lift */
         .card:hover {
             transform: translateY(-6px);
             box-shadow: 0 12px 24px -8px rgba(15, 23, 42, 0.08);
@@ -387,7 +375,6 @@ $stmt->close();
             margin-bottom: 20px;
         }
 
-        /* Table & Animations */
         .table-responsive { width: 100%; overflow-x: auto; }
 
         .pickup-table {
@@ -450,7 +437,6 @@ $stmt->close();
             transform: translateY(-1px);
         }
 
-        /* Quick Actions Grid */
         .quick-actions-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -479,7 +465,6 @@ $stmt->close();
             color: var(--primary-dark);
         }
 
-        /* Activity Feed */
         .activity-feed {
             display: flex;
             flex-direction: column;
@@ -505,34 +490,24 @@ $stmt->close();
             font-size: 18px;
         }
 
+        .empty-state {
+            text-align: center;
+            padding: 32px 16px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
         /* Keyframes */
-        @keyframes fadeInPage {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        @keyframes slideDownHeader {
-            from { opacity: 0; transform: translateY(-15px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes fadeInUpCard {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes slideUpRow {
-            from { opacity: 0; transform: translateY(15px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
+        @keyframes fadeInPage { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideDownHeader { from { opacity: 0; transform: translateY(-15px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeInUpCard { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideUpRow { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes pulseGlow {
             0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
             70% { transform: scale(1.1); box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
             100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
 
-        /* Responsive Breakpoints */
         @media (max-width: 1024px) {
             .summary-grid, .quick-actions-grid { grid-template-columns: repeat(2, 1fr); }
         }
@@ -548,7 +523,7 @@ $stmt->close();
 
 <body>
 
-    <!-- 1. Sidebar Navigation Menu -->
+    <!-- Sidebar -->
     <aside class="sidebar">
         <div>
             <a href="dashboard.php" class="sidebar-brand">
@@ -600,7 +575,7 @@ $stmt->close();
     <!-- Workspace Container -->
     <div class="workspace">
 
-        <!-- 2. Header Bar -->
+        <!-- Top Header -->
         <header class="top-navbar">
             <div class="header-title">EcoScrap Collector</div>
 
@@ -614,44 +589,44 @@ $stmt->close();
                     <div class="avatar-circle">
                         <i class="ri-user-3-line"></i>
                     </div>
-                    <span><?php echo htmlspecialchars($collector['name']); ?></span>
+                    <span><?= htmlspecialchars($collector['name']); ?></span>
                 </div>
             </div>
         </header>
 
-        <!-- Main Dashboard Section -->
+        <!-- Main Content -->
         <div class="dashboard-container">
 
             <!-- Welcome Header -->
             <div class="welcome-header">
-                <h1>Welcome Back, <?php echo htmlspecialchars(explode(' ', $collector['name'])[0]); ?> 👋</h1>
+                <h1>Welcome Back, <?= htmlspecialchars(explode(' ', trim($collector['name']))[0]); ?> 👋</h1>
                 <p>Here's your pickup schedule for today.</p>
             </div>
 
-            <!-- Animated Summary Cards Grid -->
+            <!-- Metric Cards -->
             <section class="summary-grid">
                 <div class="card">
                     <div class="card-title">Assigned Pickups</div>
-                    <div class="card-value counter" data-target="<?php echo $assigned; ?>">00</div>
+                    <div class="card-value counter" data-target="<?= $assigned; ?>">0</div>
                 </div>
 
                 <div class="card">
                     <div class="card-title">Completed Today</div>
-                    <div class="card-value counter" data-target="<?php echo $completedToday; ?>">00</div>
+                    <div class="card-value counter" data-target="<?= $completedToday; ?>">0</div>
                 </div>
 
                 <div class="card">
                     <div class="card-title">Pending Verification</div>
-                    <div class="card-value counter" data-target="<?php echo $pendingVerification; ?>">00</div>
+                    <div class="card-value counter" data-target="<?= $pendingVerification; ?>">0</div>
                 </div>
 
                 <div class="card">
                     <div class="card-title">Earnings</div>
-                    <div class="card-value">₹<span class="counter" data-target="<?php echo $earnings; ?>">0</span></div>
+                    <div class="card-value">₹<span class="counter" data-target="<?= $earnings; ?>">0</span></div>
                 </div>
             </section>
 
-            <!-- Today's Assigned Pickups Table -->
+            <!-- Today's Pickups Table -->
             <section class="section-box">
                 <div class="section-header">Today's Assigned Pickups</div>
                 <div class="table-responsive">
@@ -673,37 +648,29 @@ $stmt->close();
                                         <td><strong><?= htmlspecialchars($row['customer_name']); ?></strong></td>
                                         <td><?= htmlspecialchars($row['scrap_type']); ?></td>
                                         <td><?= htmlspecialchars($row['scrap_weight']); ?> kg</td>
-                                        <td><?= htmlspecialchars($row['pickup_time'] ?? '10 AM'); ?></td>
+                                        <td><?= !empty($row['pickup_time']) ? date("g A", strtotime($row['pickup_time'])) : 'N/A'; ?></td>
                                         <td><span class="status-badge"><?= htmlspecialchars($row['status']); ?></span></td>
                                         <td>
-                                            <a href="assigned_requests.php?id=<?= $row['activity_id']; ?>" class="btn-action">
+                                            <a href="assigned_requests.php?id=<?= (int)$row['activity_id']; ?>" class="btn-action">
                                                 View Details
                                             </a>
                                         </td>
                                     </tr>
                                 <?php endwhile; ?>
                             <?php else: ?>
-                                <?php foreach ($mockPickups as $mock): ?>
-                                    <tr>
-                                        <td><strong><?= $mock['customer_name']; ?></strong></td>
-                                        <td><?= $mock['scrap_type']; ?></td>
-                                        <td><?= $mock['scrap_weight']; ?> kg</td>
-                                        <td><?= $mock['pickup_time']; ?></td>
-                                        <td><span class="status-badge"><?= $mock['status']; ?></span></td>
-                                        <td>
-                                            <a href="assigned_requests.php?id=<?= $mock['activity_id']; ?>" class="btn-action">
-                                                <?= $mock['action']; ?>
-                                            </a>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
+                                <tr>
+                                    <td colspan="6" class="empty-state">
+                                        <i class="ri-inbox-line" style="font-size: 24px; display: block; margin-bottom: 8px;"></i>
+                                        No pickups assigned for today.
+                                    </td>
+                                </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
             </section>
 
-            <!-- Quick Actions Grid -->
+            <!-- Quick Actions -->
             <section class="section-box">
                 <div class="section-header">Quick Actions</div>
                 <div class="quick-actions-grid">
@@ -722,7 +689,7 @@ $stmt->close();
                 </div>
             </section>
 
-            <!-- Recent Activity Log Section -->
+            <!-- Activity Log -->
             <section class="section-box">
                 <div class="section-header">Recent Activity</div>
                 <div class="activity-feed">
@@ -730,26 +697,11 @@ $stmt->close();
                         <?php while ($act = $recentActivities->fetch_assoc()): ?>
                             <div class="activity-item">
                                 <i class="ri-checkbox-circle-fill"></i>
-                                <span>Pickup <?= strtolower($act['status']); ?> - <?= htmlspecialchars($act['customer_name']); ?> (<?= htmlspecialchars($act['scrap_weight']); ?>kg <?= htmlspecialchars($act['scrap_type']); ?>)</span>
+                                <span>Pickup <?= htmlspecialchars(strtolower($act['status'])); ?> - <?= htmlspecialchars($act['customer_name']); ?> (<?= htmlspecialchars($act['scrap_weight']); ?>kg <?= htmlspecialchars($act['scrap_type']); ?>)</span>
                             </div>
                         <?php endwhile; ?>
                     <?php else: ?>
-                        <div class="activity-item">
-                            <i class="ri-checkbox-circle-fill"></i>
-                            <span>Pickup completed - Rahul Nair</span>
-                        </div>
-                        <div class="activity-item">
-                            <i class="ri-checkbox-circle-fill"></i>
-                            <span>QR Verified - Activity #108</span>
-                        </div>
-                        <div class="activity-item">
-                            <i class="ri-checkbox-circle-fill"></i>
-                            <span>Plastic pickup accepted</span>
-                        </div>
-                        <div class="activity-item">
-                            <i class="ri-checkbox-circle-fill"></i>
-                            <span>25kg E-Waste collected</span>
-                        </div>
+                        <div class="empty-state">No recent activity logged yet.</div>
                     <?php endif; ?>
                 </div>
             </section>
@@ -757,15 +709,14 @@ $stmt->close();
         </div>
     </div>
 
-    <!-- Animated Counter Script -->
+    <!-- Animated Counter JS -->
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const counters = document.querySelectorAll('.counter');
-            const duration = 1200;
+            const duration = 1000;
 
             counters.forEach(counter => {
                 const target = +counter.getAttribute('data-target');
-                const isZeroPadded = counter.innerText.startsWith('0');
                 let startTime = null;
 
                 const updateCount = (timestamp) => {
@@ -773,16 +724,12 @@ $stmt->close();
                     const progress = Math.min((timestamp - startTime) / duration, 1);
                     const currentCount = Math.floor(progress * target);
 
-                    if (isZeroPadded && target < 10) {
-                        counter.innerText = currentCount < 10 ? `0${currentCount}` : currentCount;
-                    } else {
-                        counter.innerText = currentCount.toLocaleString();
-                    }
+                    counter.innerText = currentCount.toLocaleString();
 
                     if (progress < 1) {
                         requestAnimationFrame(updateCount);
                     } else {
-                        counter.innerText = isZeroPadded && target < 10 ? `0${target}` : target.toLocaleString();
+                        counter.innerText = target.toLocaleString();
                     }
                 };
 

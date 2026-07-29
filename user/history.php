@@ -1,38 +1,67 @@
 <?php
 session_start();
 
-require_once "../includes/db.php";
-require_once "../includes/functions.php";
+// 1. Database Connection
+$host = "localhost";
+$user = "root";
+$pass = "";
+$db   = "ecoscrap_db";
 
-if (
-    !isset($_SESSION['user_id']) ||
-    $_SESSION['role'] !== "User"
-) {
-    redirect("../login.php");
-    exit();
+$conn = new mysqli($host, $user, $pass, $db);
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
 }
 
-$user_id = $_SESSION['user_id'];
+// 2. Auth Check (Redirect if not logged in)
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit();
+}
+$user_id = (int) $_SESSION['user_id'];
 
+// Fetch Logged-in User Info
+$user_stmt = $conn->prepare("SELECT name FROM user WHERE user_id = ?");
+$user_stmt->bind_param("i", $user_id);
+$user_stmt->execute();
+$user_res = $user_stmt->get_result()->fetch_assoc();
+$current_user_name = $user_res['name'] ?? 'User';
+$user_stmt->close();
+
+// 3. Fetch Requests + Collector Info
 $sql = "SELECT 
-            activity.*, 
-            collector.name AS collector_name, 
-            collector.phone AS collector_phone 
-        FROM activity
-        LEFT JOIN user AS collector ON activity.collector_id = collector.user_id
-        WHERE activity.user_id = ?
-        ORDER BY activity.request_date DESC";
+            a.*, 
+            c.name AS collector_name, 
+            c.phone AS collector_phone,
+            c.email AS collector_email,
+            c.vehicle_no AS collector_vehicle
+        FROM activity a
+        LEFT JOIN scrapcollector c 
+            ON a.collector_id = c.collector_id
+        WHERE a.user_id = ?
+        ORDER BY a.request_date DESC";
 
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
 $result = $stmt->get_result();
 
-// Store rows in an array to output modals separately after the table
 $rows = [];
+$pending_count     = 0;
+$approved_count    = 0;
+$assigned_count    = 0;
+$in_progress_count = 0;
+$completed_count   = 0;
+
 if ($result && $result->num_rows > 0) {
     while ($row = $result->fetch_assoc()) {
         $rows[] = $row;
+        $st = strtolower(trim($row['status'] ?? 'pending'));
+
+        if ($st === 'pending')                 $pending_count++;
+        elseif ($st === 'approved')            $approved_count++;
+        elseif ($st === 'assigned')            $assigned_count++;
+        elseif ($st === 'in progress')         $in_progress_count++;
+        elseif ($st === 'verified' || $st === 'completed') $completed_count++;
     }
 }
 $stmt->close();
@@ -40,531 +69,461 @@ $stmt->close();
 
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Pickup Requests | EcoScrap</title>
 
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Google Fonts & Remix Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
 
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
-    <!-- Remix Icon -->
-    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
-
-    <!-- Design System CSS -->
-    <link rel="stylesheet" href="../assets/css/style.css">
-
     <style>
         :root {
-          --primary: #10B981;
-          --secondary: #047857;
-          --accent: #0EA5E9;
-          --bg-color: #F8FAFC;
-          --surface: rgba(255, 255, 255, 0.7);
-          --surface-border: rgba(15, 23, 42, 0.08);
-          --text-main: #0F172A;
-          --text-muted: #64748B;
-          --font-main: 'Inter', sans-serif;
-          --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-          --mouse-x: 50%;
-          --mouse-y: 50%;
-        }
-
-        * {
-          box-sizing: border-box;
+            --primary: #10B981;
+            --secondary: #047857;
+            --accent: #0EA5E9;
+            --bg-color: #F8FAFC;
+            --surface: rgba(255, 255, 255, 0.85);
+            --surface-border: rgba(15, 23, 42, 0.08);
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --font-main: 'Inter', sans-serif;
+            --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
         }
 
         body {
-            min-height: 100vh;
             background-color: var(--bg-color);
             color: var(--text-main);
             font-family: var(--font-main);
-            padding: 40px 20px;
-            overflow-x: hidden;
-            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+            padding-bottom: 50px;
         }
 
-        .workspace-container {
-            max-width: 1100px;
-            margin: 0 auto;
-        }
-
-        /* Top Header */
-        .topbar {
+        /* Navigation Header */
+        .header-bar {
+            background: var(--surface);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--surface-border);
+            padding: 16px 28px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 28px;
-            flex-wrap: wrap;
-            gap: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
         }
 
-        .topbar-title h1 {
-            font-size: 24px;
-            font-weight: 700;
+        .brand-title {
+            font-size: 20px;
+            font-weight: 800;
             color: var(--text-main);
-            margin: 0;
             display: flex;
             align-items: center;
-            gap: 10px;
-            letter-spacing: -0.03em;
+            gap: 8px;
+            text-decoration: none;
         }
 
-        .topbar-title p {
-            font-size: 14px;
-            color: var(--text-muted);
-            margin: 4px 0 0 0;
-        }
-
-        /* Table Card Container with Glassmorphism & Mouse Glow */
-        .table-card {
-            background: var(--surface);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--surface-border);
-            border-radius: 20px;
-            padding: 32px;
-            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
-            margin-bottom: 24px;
+        .nav-icon-btn {
             position: relative;
-            overflow: hidden;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 20px;
+            cursor: pointer;
+        }
+
+        .nav-icon-btn .badge-dot {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 8px;
+            height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+        }
+
+        /* Metric Cards */
+        .metric-card {
+            background: var(--surface);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--surface-border);
+            border-radius: 14px;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.02);
+        }
+
+        .metric-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--text-main);
+        }
+
+        /* Search & Filter Section */
+        .filter-panel {
+            background: var(--surface);
+            border: 1px solid var(--surface-border);
+            border-radius: 14px;
+            padding: 14px;
+            margin: 24px 0;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .filter-input, .filter-select {
+            background: #ffffff;
+            border: 1px solid var(--surface-border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 14px;
+            color: var(--text-main);
+            outline: none;
+        }
+
+        .filter-input { flex: 1; min-width: 200px; }
+
+        .btn-filter-search {
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-weight: 600;
             transition: var(--transition);
         }
 
-        .mouse-glow {
-            position: relative;
-        }
-        .mouse-glow::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: radial-gradient(
-                800px circle at var(--mouse-x) var(--mouse-y),
-                rgba(16, 185, 129, 0.05),
-                transparent 40%
-            );
-            z-index: 0;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-        .mouse-glow:hover::before { opacity: 1; }
-        .mouse-glow > * { position: relative; z-index: 1; }
+        .btn-filter-search:hover { background: var(--secondary); }
 
-        .custom-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
+        /* Card Wrapper */
+        .card-wrapper {
+            background: var(--surface);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--surface-border);
+            border-radius: 18px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 6px 20px rgba(15, 23, 42, 0.03);
+            transition: var(--transition);
         }
 
-        .custom-table th {
-            padding: 14px 16px;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            border-bottom: 1px solid var(--surface-border);
-            background: transparent;
-        }
-
-        .custom-table td {
-            padding: 16px;
-            font-size: 14px;
-            color: var(--text-main);
-            border-bottom: 1px solid var(--surface-border);
-            vertical-align: middle;
-        }
-
-        .custom-table tr:last-child td {
-            border-bottom: none;
+        .card-wrapper:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(15, 23, 42, 0.06);
         }
 
         /* Badges */
-        .badge-custom {
+        .status-badge {
+            font-size: 12px;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 20px;
             display: inline-flex;
             align-items: center;
-            gap: 4px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
+            gap: 6px;
         }
 
-        .badge-pending {
-            background: rgba(245, 158, 11, 0.1);
-            color: #d97706;
-            border: 1px solid rgba(245, 158, 11, 0.2);
-        }
+        .badge-pending     { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+        .badge-approved    { background: rgba(16, 185, 129, 0.12); color: #047857; }
+        .badge-assigned    { background: rgba(14, 165, 233, 0.12); color: #0284c7; }
+        .badge-in-progress { background: rgba(99, 102, 241, 0.12); color: #4f46e5; }
+        .badge-completed   { background: rgba(16, 185, 129, 0.20); color: #059669; }
 
-        .badge-approved {
-            background: rgba(14, 165, 233, 0.1);
-            color: #0284c7;
-            border: 1px solid rgba(14, 165, 233, 0.2);
-        }
-
-        .badge-assigned {
-            background: rgba(99, 102, 241, 0.1);
-            color: #4f46e5;
-            border: 1px solid rgba(99, 102, 241, 0.2);
-        }
-
-        .badge-progress {
-            background: rgba(15, 23, 42, 0.1);
-            color: #0f172a;
-            border: 1px solid rgba(15, 23, 42, 0.2);
-        }
-
-        .badge-completed {
-            background: rgba(16, 185, 129, 0.1);
-            color: #059669;
-            border: 1px solid rgba(16, 185, 129, 0.2);
-        }
-
-        .badge-rejected {
-            background: rgba(239, 68, 68, 0.1);
-            color: #dc2626;
-            border: 1px solid rgba(239, 68, 68, 0.2);
+        /* Collector Box */
+        .collector-box {
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid var(--surface-border);
+            border-radius: 12px;
+            padding: 16px;
+            margin: 16px 0;
         }
 
         /* Buttons */
-        .btn-qr {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 8px 14px;
-            background: var(--primary);
-            color: #ffffff;
-            font-size: 13px;
-            font-weight: 600;
-            border-radius: 8px;
-            text-decoration: none;
-            transition: var(--transition);
-        }
-
-        .btn-qr:hover {
-            background: var(--secondary);
-            color: #ffffff;
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
-            transform: translateY(-1px);
-        }
-
-        .btn-secondary-custom {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 18px;
-            background: rgba(255, 255, 255, 0.8);
-            border: 1px solid var(--surface-border);
-            border-radius: 10px;
-            color: var(--text-main);
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 14px;
-            transition: var(--transition);
-        }
-
-        .btn-secondary-custom:hover {
+        .btn-custom-outline {
             background: #ffffff;
-            color: var(--text-main);
-            border-color: #cbd5e1;
-            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
-        }
-
-        .btn-view-action {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: white;
             border: 1px solid var(--surface-border);
             color: var(--text-main);
-            padding: 6px 14px;
+            padding: 8px 16px;
+            border-radius: 8px;
             font-size: 13px;
             font-weight: 600;
-            border-radius: 8px;
+            text-decoration: none;
             transition: var(--transition);
         }
 
-        .btn-view-action:hover {
-            background: var(--bg-color);
+        .btn-custom-outline:hover {
             border-color: var(--primary);
             color: var(--primary);
         }
 
-        /* Modal Customizations */
-        .modal-content {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--surface-border);
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
-        }
-
-        .modal-header {
-            border-bottom: 1px solid var(--surface-border);
-            padding: 20px 24px;
-        }
-
-        .modal-body {
-            padding: 24px;
-        }
-
-        .detail-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 12px 0;
-            border-bottom: 1px dashed var(--surface-border);
-            font-size: 14px;
-        }
-
-        .detail-row:last-child {
-            border-bottom: none;
-        }
-
-        .detail-label {
-            color: var(--text-muted);
-            font-weight: 500;
-        }
-
-        .detail-value {
+        .btn-custom-primary {
+            background: var(--primary);
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
             font-weight: 600;
-            color: var(--text-main);
-            text-align: right;
+            text-decoration: none;
+            transition: var(--transition);
         }
 
-        .collector-box {
-            background: rgba(14, 165, 233, 0.05);
-            border: 1px solid rgba(14, 165, 233, 0.2);
-            border-radius: 12px;
-            padding: 14px;
-            margin-top: 16px;
-        }
-
-        @media (max-width: 768px) {
-            body {
-                padding: 20px 12px;
-            }
-            .table-card {
-                padding: 16px;
-            }
+        .btn-custom-primary:hover {
+            background: var(--secondary);
+            color: #ffffff;
         }
     </style>
 </head>
 
 <body>
 
-    <main class="workspace-container">
-
-        <!-- Header -->
-        <header class="topbar">
-            <div class="topbar-title">
-                <h1>
-                    <i class="ri-history-line" style="color: var(--primary);"></i>
-                    My Pickup Requests
-                </h1>
-                <p>Track statuses, view assigned collectors, access QR passes, and check request details.</p>
+    <!-- Header Navigation Bar -->
+    <header class="header-bar">
+        <a href="dashboard.php" class="brand-title">
+            <i class="ri-leaf-line" style="color: var(--primary);"></i>
+            <span>EcoScrap</span>
+        </a>
+        <div class="d-flex align-items-center gap-3">
+            <span class="fw-semibold fs-6 d-none d-md-inline">My Pickup Requests</span>
+            <button class="nav-icon-btn" title="Notifications">
+                <i class="ri-notification-3-line"></i>
+                <span class="badge-dot"></span>
+            </button>
+            <div class="dropdown">
+                <button class="btn border-0 dropdown-toggle fw-bold text-dark p-0" data-bs-toggle="dropdown">
+                    <i class="ri-user-3-line me-1"></i> <?= htmlspecialchars($current_user_name); ?>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="profile.php">Profile</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item text-danger" href="logout.php">Logout</a></li>
+                </ul>
             </div>
+        </div>
+    </header>
 
-            <a href="dashboard.php" class="btn-secondary-custom">
-                <i class="ri-arrow-left-line"></i> Dashboard
-            </a>
-        </header>
+    <div class="container my-4">
 
-        <!-- Requests Card -->
-        <div class="table-card mouse-glow" id="cardGlow">
+        <!-- Metrics Row -->
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-md-2">
+                <div class="metric-card">
+                    <span class="metric-label">Pending</span>
+                    <span class="metric-value" style="color: #d97706;"><?= sprintf('%02d', $pending_count); ?></span>
+                </div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="metric-card">
+                    <span class="metric-label">Approved</span>
+                    <span class="metric-value" style="color: #047857;"><?= sprintf('%02d', $approved_count); ?></span>
+                </div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="metric-card">
+                    <span class="metric-label">Assigned</span>
+                    <span class="metric-value" style="color: #0284c7;"><?= sprintf('%02d', $assigned_count); ?></span>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="metric-card">
+                    <span class="metric-label">In Progress</span>
+                    <span class="metric-value" style="color: #4f46e5;"><?= sprintf('%02d', $in_progress_count); ?></span>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="metric-card">
+                    <span class="metric-label">Completed</span>
+                    <span class="metric-value" style="color: #059669;"><?= sprintf('%02d', $completed_count); ?></span>
+                </div>
+            </div>
+        </div>
 
-            <?php if (!empty($rows)) { ?>
+        <!-- Filter Panel -->
+        <form class="filter-panel" id="filterForm">
+            <input type="text" id="searchInput" class="filter-input" placeholder="🔍 Search Pickup...">
+            <select id="statusSelect" class="filter-select">
+                <option value="">Status (All)</option>
+                <option value="Pending">Pending</option>
+                <option value="Approved">Approved</option>
+                <option value="Assigned">Assigned</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Verified">Verified / Completed</option>
+            </select>
+            <select id="scrapTypeSelect" class="filter-select">
+                <option value="">Scrap Type (All)</option>
+                <option value="Plastic">Plastic</option>
+                <option value="Metal">Metal</option>
+                <option value="Glass">Glass</option>
+                <option value="Paper">Paper</option>
+            </select>
+            <button type="submit" class="btn-filter-search">Search</button>
+        </form>
 
-                <div class="table-responsive">
-                    <table class="custom-table align-middle">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Scrap Type</th>
-                                <th>Weight</th>
-                                <th>Preferred Date</th>
-                                <th>Status</th>
-                                <th>QR Pass</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($rows as $row) { 
-                                $status = $row['status'];
-
-                                // Determine Badge Style
-                                $badgeClass = "badge-pending";
-                                if ($status === "Approved") $badgeClass = "badge-approved";
-                                elseif ($status === "Assigned") $badgeClass = "badge-assigned";
-                                elseif ($status === "In Progress") $badgeClass = "badge-progress";
-                                elseif ($status === "Completed") $badgeClass = "badge-completed";
-                                elseif ($status === "Rejected") $badgeClass = "badge-rejected";
+        <div class="row g-4">
+            <!-- Feed Column (Centered Layout) -->
+            <div class="col-12 col-lg-10 mx-auto">
+                <?php if (!empty($rows)) { 
+                    foreach ($rows as $row) { 
+                        $status = $row['status'] ?? 'Pending';
+                        $status_clean = strtolower(trim($status));
+                ?>
+                    <div class="card-wrapper" data-status="<?= htmlspecialchars($status); ?>" data-type="<?= htmlspecialchars($row['scrap_type']); ?>">
+                        
+                        <!-- Card Top Header -->
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <span class="fw-bold text-dark fs-6">📦 Request #REQ-<?= htmlspecialchars($row['activity_id']); ?></span>
+                            <?php 
+                                if ($status_clean === 'pending')                             echo '<span class="status-badge badge-pending">🟡 Pending</span>';
+                                elseif ($status_clean === 'approved')                        echo '<span class="status-badge badge-approved">🟢 Approved</span>';
+                                elseif ($status_clean === 'assigned')                        echo '<span class="status-badge badge-assigned">🟣 Assigned</span>';
+                                elseif ($status_clean === 'in progress')                     echo '<span class="status-badge badge-in-progress">🔵 In Progress</span>';
+                                elseif ($status_clean === 'verified' || $status_clean === 'completed') echo '<span class="status-badge badge-completed">🟢 Completed</span>';
                             ?>
-                                <tr>
-                                    <td><strong>#<?= htmlspecialchars($row['activity_id']); ?></strong></td>
-                                    <td><strong><?= htmlspecialchars($row['scrap_type']); ?></strong></td>
-                                    <td><?= htmlspecialchars($row['scrap_weight']); ?> kg</td>
-                                    <td><?= htmlspecialchars($row['preferred_pickup_date']); ?></td>
-                                    <td>
-                                        <span class="badge-custom <?= $badgeClass; ?>">
-                                            <?= htmlspecialchars($status); ?>
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <?php if ($status !== "Pending" && $status !== "Rejected") { ?>
-                                            <a class="btn-qr" target="_blank" href="qr.php?id=<?= htmlspecialchars($row['activity_id']); ?>">
-                                                <i class="ri-qr-code-line"></i> View QR
-                                            </a>
-                                        <?php } else { ?>
-                                            <span style="color: var(--text-muted);">—</span>
-                                        <?php } ?>
-                                    </td>
-                                    <td>
-                                        <button class="btn-view-action" data-bs-toggle="modal" data-bs-target="#modal<?= htmlspecialchars($row['activity_id']); ?>">
-                                            <i class="ri-eye-line"></i> View
-                                        </button>
-                                    </td>
-                                </tr>
-                            <?php } ?>
-                        </tbody>
-                    </table>
-                </div>
-
-            <?php } else { ?>
-
-                <!-- Empty State -->
-                <div class="text-center py-5">
-                    <div class="mb-3" style="width: 70px; height: 70px; background: rgba(16, 185, 129, 0.1); color: var(--primary); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 36px;">
-                        <i class="ri-inbox-archive-line"></i>
-                    </div>
-                    <h4 class="fw-bold mb-1">No Pickup Requests Found</h4>
-                    <p class="text-muted mb-4">You haven't created any scrap pickup requests yet.</p>
-                    <a href="create_request.php" class="btn-qr" style="padding: 10px 24px; text-decoration: none;">
-                        <i class="ri-add-line"></i> Create Pickup Request
-                    </a>
-                </div>
-
-            <?php } ?>
-
-        </div>
-
-    </main>
-
-    <!-- Modals Outputted Outside the Table for Valid HTML -->
-    <?php if (!empty($rows)) { 
-        foreach ($rows as $row) { 
-            $status = $row['status'];
-            $badgeClass = "badge-pending";
-            if ($status === "Approved") $badgeClass = "badge-approved";
-            elseif ($status === "Assigned") $badgeClass = "badge-assigned";
-            elseif ($status === "In Progress") $badgeClass = "badge-progress";
-            elseif ($status === "Completed") $badgeClass = "badge-completed";
-            elseif ($status === "Rejected") $badgeClass = "badge-rejected";
-    ?>
-        <div class="modal fade" id="modal<?= htmlspecialchars($row['activity_id']); ?>" tabindex="-1" aria-labelledby="modalLabel<?= htmlspecialchars($row['activity_id']); ?>" aria-hidden="true">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title fw-bold" id="modalLabel<?= htmlspecialchars($row['activity_id']); ?>">
-                            Pickup Details #<?= htmlspecialchars($row['activity_id']); ?>
-                        </h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="detail-row">
-                            <span class="detail-label">Scrap Type</span>
-                            <span class="detail-value"><?= htmlspecialchars($row['scrap_type']); ?></span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Estimated Weight</span>
-                            <span class="detail-value"><?= htmlspecialchars($row['scrap_weight']); ?> kg</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Pickup Date</span>
-                            <span class="detail-value"><?= htmlspecialchars($row['preferred_pickup_date']); ?></span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Preferred Time</span>
-                            <span class="detail-value"><?= htmlspecialchars($row['pickup_time'] ?? 'N/A'); ?></span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Status</span>
-                            <span class="detail-value">
-                                <span class="badge-custom <?= $badgeClass; ?>"><?= htmlspecialchars($status); ?></span>
-                            </span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Pincode</span>
-                            <span class="detail-value"><?= htmlspecialchars($row['pickup_pincode'] ?? 'N/A'); ?></span>
-                        </div>
-                        <div class="detail-row" style="flex-direction: column; gap: 4px; align-items: flex-start;">
-                            <span class="detail-label">Pickup Address</span>
-                            <span class="detail-value text-start mt-1" style="font-weight: 500;">
-                                <?= htmlspecialchars($row['pickup_address']); ?>
-                            </span>
                         </div>
 
-                        <?php if (!empty($row['collector_name'])) { ?>
+                        <!-- Main Info Section -->
+                        <div class="row align-items-center">
+                            <div class="col-md-7">
+                                <h5 class="fw-bold mb-1">♻ <?= htmlspecialchars($row['scrap_type']); ?> Scrap</h5>
+                                <p class="text-muted small mb-1">📍 <?= htmlspecialchars($row['pickup_address']); ?>, PIN: <?= htmlspecialchars($row['pickup_pincode']); ?></p>
+                            </div>
+                            <div class="col-md-5 text-md-end">
+                                <div class="fw-bold fs-6"><?= htmlspecialchars($row['scrap_weight']); ?> kg</div>
+                                <div class="text-muted small">Pickup Date: <?= htmlspecialchars($row['preferred_pickup_date']); ?> (<?= htmlspecialchars($row['pickup_time']); ?>)</div>
+                                <?php if (!empty($row['amount'])) { ?>
+                                    <div class="fw-bold text-success fs-5">₹ <?= htmlspecialchars($row['amount']); ?></div>
+                                <?php } ?>
+                            </div>
+                        </div>
+
+                        <!-- Collector Box (Only renders AFTER the collector accepts the request) -->
+                        <?php 
+                            $is_accepted = !empty($row['collector_name']) && !in_array($status_clean, ['pending', 'approved', 'assigned']);
+                            if ($is_accepted) { 
+                        ?>
                             <div class="collector-box">
-                                <div class="d-flex align-items-center gap-2 mb-2">
-                                    <i class="ri-user-received-line text-info fs-5"></i>
-                                    <span class="fw-bold text-dark" style="font-size: 14px;">Assigned Collector Details</span>
-                                </div>
-                                <div class="detail-row" style="padding: 4px 0; border: none;">
-                                    <span class="detail-label">Name</span>
-                                    <span class="detail-value"><?= htmlspecialchars($row['collector_name']); ?></span>
-                                </div>
-                                <div class="detail-row" style="padding: 4px 0; border: none;">
-                                    <span class="detail-label">Phone</span>
-                                    <span class="detail-value">
-                                        <a href="tel:<?= htmlspecialchars($row['collector_phone']); ?>" class="text-decoration-none">
-                                            <?= htmlspecialchars($row['collector_phone']); ?>
+                                <span class="fw-bold d-block text-muted small mb-2">👤 ASSIGNED COLLECTOR</span>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div class="fw-bold text-dark"><?= htmlspecialchars($row['collector_name']); ?></div>
+                                        <div class="small text-muted">
+                                            <i class="ri-phone-line me-1"></i><?= htmlspecialchars($row['collector_phone']); ?>
+                                            <?php if (!empty($row['collector_vehicle'])) { ?>
+                                                <span class="ms-2">| <i class="ri-car-line ms-1 me-1"></i><?= htmlspecialchars($row['collector_vehicle']); ?></span>
+                                            <?php } ?>
+                                        </div>
+                                    </div>
+                                    <div class="text-end">
+                                        <a href="tel:<?= htmlspecialchars($row['collector_phone']); ?>" class="btn btn-sm btn-outline-success">
+                                            <i class="ri-phone-fill"></i> Call Collector
                                         </a>
-                                    </span>
+                                    </div>
                                 </div>
                             </div>
                         <?php } ?>
 
-                        <?php if (!empty($row['remarks'])) { ?>
-                            <div class="detail-row mt-2" style="flex-direction: column; gap: 4px; align-items: flex-start;">
-                                <span class="detail-label">Remarks</span>
-                                <span class="detail-value text-start mt-1" style="font-weight: 400; color: #475569;">
-                                    <?= htmlspecialchars($row['remarks']); ?>
-                                </span>
-                            </div>
-                        <?php } ?>
+                        <!-- Action Controls -->
+                        <div class="d-flex gap-2 mt-3 pt-2 border-top border-light">
+
+                            <?php if ($status_clean === 'pending' || $status_clean === 'approved') { ?>
+
+                                <a href="track_status.php?id=<?= htmlspecialchars($row['activity_id']); ?>" class="btn-custom-outline">
+                                    <i class="ri-eye-line"></i> View Details
+                                </a>
+
+                                <button class="btn-custom-outline text-danger border-danger-subtle">
+                                    <i class="ri-close-circle-line"></i> Cancel Request
+                                </button>
+
+                            <?php } elseif ($status_clean === 'assigned') { ?>
+
+                                <button class="btn-custom-outline text-muted" disabled>
+                                    <i class="ri-time-line"></i> Awaiting Collector Acceptance
+                                </button>
+
+                                <a href="track_status.php?id=<?= htmlspecialchars($row['activity_id']); ?>" class="btn-custom-outline">
+                                    <i class="ri-map-pin-time-line"></i> Track Status
+                                </a>
+
+                            <?php } elseif ($status_clean === 'in progress') { ?>
+
+                                <?php if (!empty($row['qr_code'])) { ?>
+                                    <a href="../uploads/qr/<?= htmlspecialchars($row['qr_code']); ?>" target="_blank" class="btn-custom-primary">
+                                        <i class="ri-qr-code-line"></i> View QR Pass
+                                    </a>
+                                <?php } ?>
+
+                                <a href="track_status.php?id=<?= htmlspecialchars($row['activity_id']); ?>" class="btn-custom-outline">
+                                    <i class="ri-map-pin-time-line"></i> Track Status
+                                </a>
+
+                            <?php } elseif ($status_clean === 'verified' || $status_clean === 'completed') { ?>
+
+                                <a href="track_status.php?id=<?= htmlspecialchars($row['activity_id']); ?>" class="btn-custom-outline">
+                                    <i class="ri-file-list-line"></i> View Receipt
+                                </a>
+
+                                <button class="btn-custom-outline text-warning border-warning-subtle">
+                                    <i class="ri-star-line"></i> Rate Collector
+                                </button>
+
+                            <?php } ?>
+
+                        </div>
+
                     </div>
-                </div>
+                <?php 
+                    } // end foreach
+                } else { 
+                ?>
+                    <div class="card-wrapper text-center py-5">
+                        <i class="ri-inbox-line text-muted mb-2" style="font-size: 48px;"></i>
+                        <h5 class="fw-bold text-dark mb-1">No Requests Found</h5>
+                        <p class="text-muted small mb-0">You haven't scheduled any pickup requests yet.</p>
+                    </div>
+                <?php } ?>
             </div>
         </div>
-    <?php 
-        } 
-    } 
-    ?>
+    </div>
 
-    <!-- Mouse Glow Coordinate Script -->
-    <script>
-        const card = document.getElementById('cardGlow');
-        if (card) {
-            card.addEventListener('mousemove', (e) => {
-                const rect = card.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                card.style.setProperty('--mouse-x', `${x}px`);
-                card.style.setProperty('--mouse-y', `${y}px`);
-            });
-        }
-    </script>
-
-    <!-- Bootstrap 5 JS Bundle -->
+    <!-- Bootstrap 5 JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Client-side Filter Script
+        document.getElementById('filterForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const searchVal = document.getElementById('searchInput').value.toLowerCase();
+            const statusVal = document.getElementById('statusSelect').value.toLowerCase();
+            const typeVal   = document.getElementById('scrapTypeSelect').value.toLowerCase();
 
+            document.querySelectorAll('.card-wrapper[data-status]').forEach(card => {
+                const text       = card.innerText.toLowerCase();
+                const cardStatus = card.getAttribute('data-status').toLowerCase();
+                const cardType   = card.getAttribute('data-type').toLowerCase();
+
+                const matchesSearch = text.includes(searchVal);
+                const matchesStatus = !statusVal || cardStatus.includes(statusVal);
+                const matchesType   = !typeVal   || cardType.includes(typeVal);
+
+                if (matchesSearch && matchesStatus && matchesType) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
+    </script>
 </body>
-
 </html>

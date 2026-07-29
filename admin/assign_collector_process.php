@@ -8,7 +8,6 @@ session_start();
 
 require_once "../includes/db.php";
 require_once "../includes/functions.php";
-require_once "../includes/phpqrcode/lib/qrlib.php";
 
 // 1. Authorization & Request Verification
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== "Admin") {
@@ -29,8 +28,6 @@ if ($activity_id <= 0 || $collector_id <= 0) {
     header("Location: manage.php");
     exit();
 }
-
-$qrFile = "";
 
 try {
     // Enable mysqli exception mode to catch standard SQL errors cleanly
@@ -65,7 +62,7 @@ try {
 
     /*
     ==========================================================
-    STEP 2: Verify Collector
+    STEP 2: Verify Collector Availability
     ==========================================================
     */
     $stmt = $conn->prepare("
@@ -94,50 +91,17 @@ try {
 
     /*
     ==========================================================
-    STEP 3: Single-Source QR Code Generation
-    ==========================================================
-    */
-    $qrFolder = "../qr_codes/";
-
-    if (!file_exists($qrFolder)) {
-        if (!mkdir($qrFolder, 0755, true) && !is_dir($qrFolder)) {
-            throw new Exception("Failed to create directory for QR codes: " . $qrFolder);
-        }
-    }
-
-    $filename = "pickup_" . $activity_id . "_" . time() . ".png";
-    $qrFile = $qrFolder . $filename;
-
-    $token = bin2hex(random_bytes(16));
-    $qrData = json_encode([
-        "activity_id"  => $activity_id,
-        "collector_id" => $collector_id,
-        "token"        => $token,
-        "generated_at" => date("Y-m-d H:i:s")
-    ]);
-
-    // Generate the QR file
-    QRcode::png($qrData, $qrFile, QR_ECLEVEL_L, 5);
-
-    // Verify filesystem output immediately
-    if (!file_exists($qrFile) || filesize($qrFile) === 0) {
-        throw new Exception("QR code generation failed. File was not created on the filesystem.");
-    }
-
-    /*
-    ==========================================================
-    STEP 4: Assign Collector & Record QR
+    STEP 3: Assign Collector (Status -> 'Assigned')
     ==========================================================
     */
     $stmt = $conn->prepare("
         UPDATE activity
         SET
             collector_id = ?,
-            status = 'Assigned',
-            qr_code = ?
+            status = 'Assigned'
         WHERE activity_id = ?
     ");
-    $stmt->bind_param("isi", $collector_id, $filename, $activity_id);
+    $stmt->bind_param("ii", $collector_id, $activity_id);
     $stmt->execute();
 
     if ($stmt->affected_rows !== 1) {
@@ -147,7 +111,7 @@ try {
 
     /*
     ==========================================================
-    STEP 5: Update Collector Status
+    STEP 4: Mark Collector as Reserved/Busy
     ==========================================================
     */
     $stmt = $conn->prepare("
@@ -165,21 +129,15 @@ try {
 
     /*
     ==========================================================
-    STEP 6: Commit Transaction
+    STEP 5: Commit Transaction
     ==========================================================
     */
     $conn->commit();
-    $_SESSION['msg'] = "Collector assigned and QR code generated successfully.";
+    $_SESSION['msg'] = "Collector assigned successfully. Waiting for collector acceptance.";
 
 } catch (Exception $e) {
-    // Rollback DB changes on any failure
     if ($conn->connect_errno === 0) {
         $conn->rollback();
-    }
-
-    // Clean up created orphan QR image file if DB update failed
-    if (!empty($qrFile) && file_exists($qrFile)) {
-        unlink($qrFile);
     }
 
     $_SESSION['error'] = "Assignment failed: " . $e->getMessage();

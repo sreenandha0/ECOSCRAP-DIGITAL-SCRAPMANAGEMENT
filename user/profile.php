@@ -1,482 +1,687 @@
 <?php
 session_start();
-
 require_once "../includes/db.php";
-require_once "../includes/functions.php";
 
-// Auth Check
-if (
-    !isset($_SESSION['user_id']) ||
-    $_SESSION['role'] !== "User"
-) {
-    redirect("../login.php");
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../login.php");
     exit();
 }
 
 $user_id = $_SESSION['user_id'];
 
-// Fetch latest user details
 $stmt = $conn->prepare("SELECT * FROM user WHERE user_id = ?");
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
-$user = $stmt->get_result()->fetch_assoc();
+$result = $stmt->get_result();
+
+if ($result->num_rows === 0) {
+    die("User not found.");
+}
+
+$user = $result->fetch_assoc();
 $stmt->close();
 
-// Profile image fallback
-$image = "../assets/images/default-user.png";
-if (!empty($user['profile_image']) && file_exists("../uploads/profile/" . $user['profile_image'])) {
-    $image = "../uploads/profile/" . $user['profile_image'];
+// Profile Image Fallback
+$image = (!empty($user['profile_image']) && file_exists("../uploads/profile/" . $user['profile_image']))
+    ? "../uploads/profile/" . htmlspecialchars($user['profile_image'], ENT_QUOTES, 'UTF-8')
+    : "../assets/images/default-user.png";
+
+// Profile Completion Score Calculation (PRG001)
+$track_fields = ['name', 'email', 'phone', 'place', 'district', 'state', 'pincode', 'address', 'profile_image'];
+$filled_count = 0;
+foreach ($track_fields as $field) {
+    if (!empty($user[$field])) {
+        $filled_count++;
+    }
 }
+$completion_score = round(($filled_count / count($track_fields)) * 100);
 ?>
-
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="en" class="lenis lenis-smooth">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Profile | EcoScrap</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Account - EcoScrap</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Brand Colors */
+  --primary: #10B981;    /* Emerald Green */
+  --secondary: #047857;  /* Forest Green */
+  --accent: #0EA5E9;     /* Sky Blue */
+  --danger: #EF4444;     /* Red */
+  
+  /* Backgrounds & Surface */
+  --bg-color: #F8FAFC;
+  --surface: rgba(255, 255, 255, 0.75);
+  --surface-border: rgba(15, 23, 42, 0.08);
+  
+  /* Text */
+  --text-main: #0F172A;
+  --text-muted: #64748B;
+  
+  /* Utilities */
+  --font-main: 'Inter', sans-serif;
+  --transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+}
 
-    <!-- Bootstrap 5 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
-    <!-- Remix Icon -->
-    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+body {
+  font-family: var(--font-main);
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
 
-    <!-- Design System CSS -->
-    <link rel="stylesheet" href="../assets/css/style.css">
+/* ==========================================
+   LOGO STYLES
+   ========================================== */
+.logo {
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--text-main);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: -0.03em;
+}
 
-    <style>
-        :root {
-          --primary: #10B981;
-          --secondary: #047857;
-          --accent: #0EA5E9;
-          --bg-color: #F8FAFC;
-          --surface: rgba(255, 255, 255, 0.7);
-          --surface-border: rgba(15, 23, 42, 0.08);
-          --text-main: #0F172A;
-          --text-muted: #64748B;
-          --font-main: 'Inter', sans-serif;
-          --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-          --mouse-x: 50%;
-          --mouse-y: 50%;
-        }
+.logo-mark {
+  width: 12px;
+  height: 12px;
+  background: var(--primary);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
 
-        * {
-          box-sizing: border-box;
-        }
+/* ==========================================
+   WIREFRAME TOP NAVBAR (NAV001)
+   ========================================== */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--surface-border);
+}
 
-        body {
-            min-height: 100vh;
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            font-family: var(--font-main);
-            padding: 40px 20px;
-            overflow-x: hidden;
-            -webkit-font-smoothing: antialiased;
-        }
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
 
-        .workspace-container {
-            max-width: 1000px;
-            margin: 0 auto;
-        }
+/* Left Zone */
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
-        /* Top Bar Navigation */
-        .topbar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 28px;
-            flex-wrap: wrap;
-            gap: 16px;
-        }
+.nav-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--text-main);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+.nav-toggle-btn:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
 
-        .topbar-title h1 {
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--text-main);
-            margin: 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            letter-spacing: -0.03em;
-        }
+/* Center Zone */
+.nav-center {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-main);
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-        .topbar-title p {
-            font-size: 14px;
-            color: var(--text-muted);
-            margin: 4px 0 0 0;
-        }
+/* Right Zone */
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
-        .btn-secondary-custom {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 18px;
-            background: rgba(255, 255, 255, 0.8);
-            border: 1px solid var(--surface-border);
-            border-radius: 10px;
-            color: var(--text-main);
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 14px;
-            transition: var(--transition);
-        }
+/* Navbar Edit Profile Button */
+.nav-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--text-main);
+  color: white;
+  text-decoration: none;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: var(--transition);
+}
 
-        .btn-secondary-custom:hover {
-            background: #ffffff;
-            color: var(--text-main);
-            border-color: #cbd5e1;
-            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
-        }
+.nav-edit-btn:hover {
+  background: var(--primary);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+}
 
-        /* Profile Card Layout with Glassmorphism & Mouse Glow */
-        .profile-card {
-            background: var(--surface);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--surface-border);
-            border-radius: 20px;
-            padding: 32px;
-            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
-            position: relative;
-            overflow: hidden;
-            transition: var(--transition);
-        }
+.nav-icon-btn {
+  position: relative;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+  text-decoration: none;
+}
 
-        .mouse-glow {
-            position: relative;
-        }
-        .mouse-glow::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: radial-gradient(
-                800px circle at var(--mouse-x) var(--mouse-y),
-                rgba(16, 185, 129, 0.05),
-                transparent 40%
-            );
-            z-index: 0;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-        .mouse-glow:hover::before { opacity: 1; }
-        .mouse-glow > * { position: relative; z-index: 1; }
+.nav-icon-btn:hover {
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--text-main);
+}
 
-        /* Avatar Container */
-        .avatar-container {
-            position: relative;
-            width: 140px;
-            height: 140px;
-            margin: 0 auto 20px;
-        }
+.notification-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  background: var(--primary);
+  border-radius: 50%;
+  border: 2px solid white;
+}
 
-        .profile-photo {
-            width: 140px;
-            height: 140px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 4px solid var(--primary);
-            box-shadow: 0 8px 20px rgba(16, 185, 129, 0.15);
-        }
+/* User Dropdown */
+.dropdown {
+  position: relative;
+}
 
-        .avatar-upload-btn {
-            position: absolute;
-            bottom: 4px;
-            right: 4px;
-            width: 38px;
-            height: 38px;
-            background: var(--primary);
-            color: #ffffff;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            border: 3px solid #ffffff;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
-            transition: var(--transition);
-        }
+.user-dropdown-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--surface-border);
+  padding: 4px 12px 4px 6px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-family: var(--font-main);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-main);
+  transition: var(--transition);
+}
 
-        .avatar-upload-btn:hover {
-            transform: scale(1.08);
-            background: var(--secondary);
-        }
+.user-dropdown-btn:hover {
+  background: white;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
 
-        /* Form Controls */
-        .form-label-custom {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 6px;
-        }
+.nav-avatar-sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--primary);
+}
 
-        .form-control-custom {
-            width: 100%;
-            padding: 11px 14px;
-            font-size: 14px;
-            border: 1px solid var(--surface-border);
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.8);
-            color: var(--text-main);
-            transition: var(--transition);
-        }
+.dropdown-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 190px;
+  background: white;
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  padding: 6px 0;
+  display: none;
+  flex-direction: column;
+  z-index: 1001;
+}
 
-        .form-control-custom:focus {
-            outline: none;
-            border-color: var(--primary);
-            background: #ffffff;
-            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
-        }
+.dropdown-menu.show { display: flex; }
 
-        .form-control-custom[readonly] {
-            background-color: rgba(241, 245, 249, 0.6);
-            color: var(--text-muted);
-            cursor: not-allowed;
-            border-color: var(--surface-border);
-        }
+.dropdown-item {
+  padding: 8px 16px;
+  text-decoration: none;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: var(--transition);
+}
 
-        textarea.form-control-custom {
-            resize: vertical;
-        }
+.dropdown-item:hover {
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--primary);
+}
 
-        /* Buttons */
-        .btn-submit {
-            background: var(--primary);
-            color: #ffffff;
-            border: none;
-            border-radius: 10px;
-            padding: 12px 28px;
-            font-weight: 600;
-            font-size: 14px;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            transition: var(--transition);
-        }
+.dropdown-item.danger:hover {
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--danger);
+}
 
-        .btn-submit:hover {
-            background: var(--secondary);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
-        }
+.dropdown-divider {
+  height: 1px;
+  background: var(--surface-border);
+  margin: 4px 0;
+}
 
-        /* Alert Toast */
-        .alert-success-custom {
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            color: #059669;
-            padding: 14px 18px;
-            border-radius: 12px;
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 24px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+/* Glass Card */
+.glass-card {
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--surface-border);
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+  transition: var(--transition);
+}
 
-        /* Meta Box */
-        .meta-box {
-            background: rgba(255, 255, 255, 0.5);
-            border: 1px solid var(--surface-border);
-            border-radius: 12px;
-            padding: 16px;
-            margin-top: 16px;
-            text-align: left;
-        }
+/* Mouse Glow Effect */
+.mouse-glow {
+  position: relative;
+  overflow: hidden;
+}
+.mouse-glow::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(
+    700px circle at var(--mouse-x) var(--mouse-y),
+    rgba(16, 185, 129, 0.08),
+    transparent 45%
+  );
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.mouse-glow:hover::before { opacity: 1; }
+.mouse-glow > * { position: relative; z-index: 1; }
 
-        @media (max-width: 991.65px) {
-            .border-end-lg {
-                border-right: none !important;
-                border-bottom: 1px solid var(--surface-border);
-                padding-bottom: 24px;
-                margin-bottom: 24px;
-            }
-        }
+/* Dashboard Shell */
+.dashboard-shell {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 32px 20px;
+}
 
-        @media (max-width: 768px) {
-            body {
-                padding: 20px 12px;
-            }
-            .profile-card {
-                padding: 20px;
-            }
-        }
-    </style>
+/* Gradient Avatar Frame (BRD001) */
+.avatar-frame {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  padding: 4px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  box-shadow: 0 10px 25px rgba(16, 185, 129, 0.25);
+}
+
+.avatar-frame img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  background: white;
+  border: 3px solid white;
+}
+
+/* Role Badge */
+.badge-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  font-weight: 600;
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+}
+
+/* Progress Bar Component (PRG001) */
+.profile-progress-box {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: 24px 0;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.progress-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  width: <?= $completion_score ?>%;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  border-radius: 10px;
+  transition: width 1s ease-in-out;
+}
+
+/* Tab Navigation (TAB001) */
+.tabs-header {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--surface-border);
+  margin-bottom: 24px;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  padding: 10px 18px;
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: var(--transition);
+}
+
+.tab-btn:hover { color: var(--text-main); }
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Form Grid */
+.dashboard-card { padding: 32px; }
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+.full-width { grid-column: 1 / -1; }
+
+.field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.field-input, .field-textarea {
+  width: 100%;
+  padding: 11px 14px;
+  font-size: 14px;
+  font-family: var(--font-main);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text-main);
+}
+
+.field-input[readonly], .field-textarea[readonly] {
+  background-color: rgba(241, 245, 249, 0.7);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.text-center { text-align: center; }
+
+@media (max-width: 768px) {
+  .nav-center { display: none; }
+  .nav-edit-btn span { display: none; }
+  .nav-edit-btn { padding: 8px; border-radius: 50%; }
+  .form-grid { grid-template-columns: 1fr; }
+  .dashboard-shell { padding: 20px 12px; }
+  .dashboard-card { padding: 20px; }
+}
+</style>
 </head>
-
 <body>
 
-    <main class="workspace-container">
+<!-- Sticky Wireframe Navbar -->
+<nav class="navbar">
+  <div class="nav-container">
+    
+    <!-- LEFT: Mobile Menu Button & EcoScrap Logo -->
+    <div class="nav-left">
+      <button class="nav-toggle-btn" id="drawerToggle" aria-label="Toggle menu">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+      </button>
 
-        <!-- Topbar -->
-        <header class="topbar">
-            <div class="topbar-title">
-                <h1>
-                    <i class="ri-user-settings-line" style="color: var(--primary);"></i>
-                    Account Profile
-                </h1>
-                <p>Manage your address, contact, and account preference settings.</p>
-            </div>
+      <a href="../dashboard.php" class="logo">
+        <span class="logo-mark"></span>
+        EcoScrap
+      </a>
+    </div>
 
-            <a href="dashboard.php" class="btn-secondary-custom">
-                <i class="ri-arrow-left-line"></i> Dashboard
-            </a>
-        </header>
+    <!-- CENTER: Section Header (User Account) -->
+    <div class="nav-center">
+      User Account
+    </div>
 
-        <!-- Notification Alert -->
-        <?php if (isset($_GET['success'])) { ?>
-            <div class="alert-success-custom">
-                <i class="ri-checkbox-circle-fill fs-5"></i>
-                <span>Your profile information has been successfully updated.</span>
-            </div>
-        <?php } ?>
+    <!-- RIGHT: Edit Profile Action, Notifications, Settings, User Dropdown Menu -->
+    <div class="nav-right">
+      
+      <!-- Quick Edit Profile Action in Navbar -->
+      <a href="update_profile.php" class="nav-edit-btn" title="Edit Profile">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+        <span>Edit Profile</span>
+      </a>
 
-        <!-- Main Form Card with Mouse Glow -->
-        <div class="profile-card mouse-glow" id="cardGlow">
-            <form action="update_profile.php" method="POST" enctype="multipart/form-data">
+      <!-- Notification Icon -->
+      <a href="../notifications.php" class="nav-icon-btn" title="Notifications">
+        <span class="notification-dot"></span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+      </a>
 
-                <div class="row g-4">
+      <!-- Settings Icon -->
+      <a href="../settings.php" class="nav-icon-btn" title="Settings">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      </a>
 
-                    <!-- Left Column: Image & Read-only Meta -->
-                    <div class="col-lg-4 text-center border-end-lg pe-lg-4">
-                        
-                        <div class="avatar-container">
-                            <img src="<?= htmlspecialchars($image); ?>" id="avatarPreview" class="profile-photo" alt="Profile Photo">
-                            <label for="profile_image_input" class="avatar-upload-btn" title="Upload New Photo">
-                                <i class="ri-camera-line fs-5"></i>
-                            </label>
-                            <input type="file" id="profile_image_input" name="profile_image" accept="image/*" class="d-none" onchange="previewImage(this)">
-                        </div>
+      <!-- User Profile Dropdown -->
+      <div class="dropdown">
+        <button class="user-dropdown-btn" id="userMenuBtn">
+          <img src="<?= $image ?>" alt="Avatar" class="nav-avatar-sm">
+          <span><?= htmlspecialchars(explode(' ', $user['name'] ?? 'User')[0], ENT_QUOTES, 'UTF-8') ?></span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
 
-                        <h5 class="fw-bold mb-1"><?= htmlspecialchars($user['name'] ?? 'User'); ?></h5>
-                        <p class="text-muted small mb-0"><?= htmlspecialchars($user['email']); ?></p>
+        <div class="dropdown-menu" id="userDropdown">
+          <a href="profile.php" class="dropdown-item">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            My Profile
+          </a>
+          <a href="update_profile.php" class="dropdown-item">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+            Edit Profile
+          </a>
+          <div class="dropdown-divider"></div>
+          <a href="../logout.php" class="dropdown-item danger">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+            Logout
+          </a>
+        </div>
+      </div>
 
-                        <div class="meta-box">
-                            <div class="mb-3">
-                                <span class="d-block text-muted small fw-semibold mb-1">ACCOUNT ROLE</span>
-                                <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.2); font-weight: 600; padding: 6px 12px; border-radius: 20px; font-size: 12px;">
-                                    <?= htmlspecialchars($user['role'] ?? 'User'); ?>
-                                </span>
-                            </div>
-                            <?php if (!empty($user['created_at'])) { ?>
-                                <div>
-                                    <span class="d-block text-muted small fw-semibold mb-1">MEMBER SINCE</span>
-                                    <span class="fw-semibold text-dark small"><?= date("M d, Y", strtotime($user['created_at'])); ?></span>
-                                </div>
-                            <?php } ?>
-                        </div>
+    </div>
 
-                    </div>
+  </div>
+</nav>
 
-                    <!-- Right Column: Editable Fields -->
-                    <div class="col-lg-8 ps-lg-4">
+<div class="dashboard-shell">
 
-                        <div class="row g-3">
+  <div class="glass-card mouse-glow dashboard-card">
+    
+    <!-- Profile Summary Header -->
+    <div class="text-center">
+      <div class="avatar-frame">
+        <img src="<?= $image ?>" alt="Profile Picture">
+      </div>
+      <h2 style="font-size: 22px; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
+        <?= htmlspecialchars($user['name'] ?? 'User', ENT_QUOTES, 'UTF-8') ?>
+      </h2>
+      <span class="badge-role">Eco Member</span>
+      <p style="color: var(--text-muted); margin-top: 6px; font-size: 14px;">
+        <?= htmlspecialchars($user['email'] ?? '', ENT_QUOTES, 'UTF-8') ?>
+      </p>
+    </div>
 
-                            <!-- Full Name -->
-                            <div class="col-md-6">
-                                <label class="form-label-custom" for="name">Full Name</label>
-                                <input type="text" id="name" name="name" class="form-control-custom" value="<?= htmlspecialchars($user['name'] ?? ''); ?>" required>
-                            </div>
+    <!-- Animated Progress Bar (PRG001) -->
+    <div class="profile-progress-box">
+      <div class="progress-header">
+        <span>Profile Completion</span>
+        <span style="color: var(--primary);"><?= $completion_score ?>%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill"></div>
+      </div>
+    </div>
 
-                            <!-- Email (Read-only) -->
-                            <div class="col-md-6">
-                                <label class="form-label-custom">Email Address</label>
-                                <input type="email" class="form-control-custom" value="<?= htmlspecialchars($user['email'] ?? ''); ?>" readonly>
-                            </div>
+    <!-- Tabbed Navigation Bar (TAB001) -->
+    <div class="tabs-header">
+      <button class="tab-btn active" onclick="switchTab(event, 'tab-personal')">Personal Info</button>
+      <button class="tab-btn" onclick="switchTab(event, 'tab-location')">Location & Address</button>
+    </div>
 
-                            <!-- Phone -->
-                            <div class="col-md-6">
-                                <label class="form-label-custom" for="phone">Phone Number</label>
-                                <input type="text" id="phone" name="phone" class="form-control-custom" value="<?= htmlspecialchars($user['phone'] ?? ''); ?>" placeholder="+91 00000 00000">
-                            </div>
-
-                            <!-- Pincode -->
-                            <div class="col-md-6">
-                                <label class="form-label-custom" for="pincode">Pincode</label>
-                                <input type="text" id="pincode" name="pincode" class="form-control-custom" value="<?= htmlspecialchars($user['pincode'] ?? ''); ?>">
-                            </div>
-
-                            <!-- Full Address -->
-                            <div class="col-12">
-                                <label class="form-label-custom" for="address">Pickup Address</label>
-                                <textarea id="address" name="address" rows="3" class="form-control-custom" placeholder="House/Building Name, Street, Area"><?= htmlspecialchars($user['address'] ?? ''); ?></textarea>
-                            </div>
-
-                            <!-- Place -->
-                            <div class="col-md-4">
-                                <label class="form-label-custom" for="place">Place / City</label>
-                                <input type="text" id="place" name="place" class="form-control-custom" value="<?= htmlspecialchars($user['place'] ?? ''); ?>">
-                            </div>
-
-                            <!-- District -->
-                            <div class="col-md-4">
-                                <label class="form-label-custom" for="district">District</label>
-                                <input type="text" id="district" name="district" class="form-control-custom" value="<?= htmlspecialchars($user['district'] ?? ''); ?>">
-                            </div>
-
-                            <!-- State -->
-                            <div class="col-md-4">
-                                <label class="form-label-custom" for="state">State</label>
-                                <input type="text" id="state" name="state" class="form-control-custom" value="<?= htmlspecialchars($user['state'] ?? ''); ?>">
-                            </div>
-
-                        </div>
-
-                        <!-- Action Row -->
-                        <div class="mt-4 pt-3 border-top text-end" style="border-color: var(--surface-border) !important;">
-                            <button type="submit" class="btn-submit">
-                                <i class="ri-save-line"></i> Save Changes
-                            </button>
-                        </div>
-
-                    </div>
-
-                </div>
-
-            </form>
+    <!-- Tab 1: Personal Info -->
+    <div id="tab-personal" class="tab-content active">
+      <div class="form-grid">
+        <div>
+          <label class="field-label">Full Name</label>
+          <input type="text" class="field-input" value="<?= htmlspecialchars($user['name'] ?? '', ENT_QUOTES, 'UTF-8') ?>" readonly>
         </div>
 
-    </main>
+        <div>
+          <label class="field-label">Email Address</label>
+          <input type="text" class="field-input" value="<?= htmlspecialchars($user['email'] ?? '', ENT_QUOTES, 'UTF-8') ?>" readonly>
+        </div>
 
-    <!-- Mouse Glow Coordinate Script -->
-    <script>
-        const card = document.getElementById('cardGlow');
-        if (card) {
-            card.addEventListener('mousemove', (e) => {
-                const rect = card.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                card.style.setProperty('--mouse-x', `${x}px`);
-                card.style.setProperty('--mouse-y', `${y}px`);
-            });
-        }
-    </script>
+        <div>
+          <label class="field-label">Phone Number</label>
+          <input type="text" class="field-input" value="<?= htmlspecialchars($user['phone'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?>" readonly>
+        </div>
 
-    <!-- Client-side Avatar Preview -->
-    <script>
-        function previewImage(input) {
-            if (input.files && input.files[0]) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    document.getElementById('avatarPreview').src = e.target.result;
-                }
-                reader.readAsDataURL(input.files[0]);
-            }
-        }
-    </script>
+        <div>
+          <label class="field-label">Account Role</label>
+          <input type="text" class="field-input" value="Active Member" readonly>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Location Details -->
+    <div id="tab-location" class="tab-content">
+      <div class="form-grid">
+        <div>
+          <label class="field-label">Place</label>
+          <input type="text" class="field-input" value="<?= htmlspecialchars($user['place'] ?? '', ENT_QUOTES, 'UTF-8') ?>" readonly>
+        </div>
+
+        <div>
+          <label class="field-label">District</label>
+          <input type="text" class="field-input" value="<?= htmlspecialchars($user['district'] ?? '', ENT_QUOTES, 'UTF-8') ?>" readonly>
+        </div>
+
+        <div>
+          <label class="field-label">State</label>
+          <input type="text" class="field-input" value="<?= htmlspecialchars($user['state'] ?? '', ENT_QUOTES, 'UTF-8') ?>" readonly>
+        </div>
+
+        <div>
+          <label class="field-label">Pincode</label>
+          <input type="text" class="field-input" value="<?= htmlspecialchars($user['pincode'] ?? '', ENT_QUOTES, 'UTF-8') ?>" readonly>
+        </div>
+
+        <div class="full-width">
+          <label class="field-label">Residential Address</label>
+          <textarea class="field-textarea" rows="3" readonly><?= htmlspecialchars($user['address'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// User Dropdown Controller
+const userMenuBtn = document.getElementById('userMenuBtn');
+const userDropdown = document.getElementById('userDropdown');
+
+userMenuBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  userDropdown.classList.toggle('show');
+});
+
+document.addEventListener('click', () => {
+  userDropdown.classList.remove('show');
+});
+
+// Mouse Glow Effect Controller
+document.querySelectorAll('.mouse-glow').forEach(element => {
+  element.addEventListener('mousemove', e => {
+    const rect = element.getBoundingClientRect();
+    element.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
+    element.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
+  });
+});
+
+// Tab Switching Controller (TAB001)
+function switchTab(evt, tabId) {
+  document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  
+  document.getElementById(tabId).classList.add('active');
+  evt.currentTarget.classList.add('active');
+}
+</script>
 
 </body>
-
 </html>

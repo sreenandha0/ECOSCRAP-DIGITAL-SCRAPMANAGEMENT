@@ -23,7 +23,7 @@ $stmt_col->execute();
 $res_col = $stmt_col->get_result();
 if ($col_data = $res_col->fetch_assoc()) {
     $collector_name = $col_data['name'];
-    $_SESSION['collector_name'] = $collector_name; // Sync back to session
+    $_SESSION['collector_name'] = $collector_name;
 }
 $stmt_col->close();
 
@@ -32,32 +32,58 @@ $stmt_col->close();
 ---------------------------------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
+    verifyCsrfToken(); // CSRF Protection
+
     $activity_id = (int)$_POST['activity_id'];
     $weight      = (float)$_POST['scrap_weight'];
     $amount      = (float)$_POST['amount'];
-    $remarks     = trim($_POST['remarks']);
+    $remarks     = trim($_POST['remarks'] ?? '');
 
-    $sql = "UPDATE activity
-            SET scrap_weight = ?,
-                amount = ?,
-                remarks = ?,
-                status = 'Completed',
-                qr_status = 'Used',
-                completed_at = NOW()
-            WHERE activity_id = ? AND collector_id = ? AND status != 'Completed'";
+    try {
+        // Validation check
+        if ($weight <= 0 || $amount < 0) {
+            throw new Exception("Please enter a valid scrap weight and amount.");
+        }
 
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ddsii", $weight, $amount, $remarks, $activity_id, $collector_id);
+        $conn->begin_transaction();
 
-    if ($stmt->execute() && $stmt->affected_rows > 0) {
+        // 1. Update activity record
+        $sql = "UPDATE activity
+                SET scrap_weight = ?,
+                    amount = ?,
+                    remarks = ?,
+                    status = 'Completed',
+                    qr_status = 'Used',
+                    completed_at = NOW()
+                WHERE activity_id = ? AND collector_id = ? AND status != 'Completed'";
+
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("ddsii", $weight, $amount, $remarks, $activity_id, $collector_id);
+        $stmt->execute();
+
+        if ($stmt->affected_rows === 0) {
+            throw new Exception("Unable to confirm pickup. It may already be completed or assigned to another route.");
+        }
         $stmt->close();
+
+        // 2. Reset Collector status to 'Available'
+        $stmt_avail = $conn->prepare("UPDATE scrapcollector SET availability_status = 'Available' WHERE collector_id = ?");
+        $stmt_avail->bind_param("i", $collector_id);
+        $stmt_avail->execute();
+        $stmt_avail->close();
+
+        $conn->commit();
+
         $_SESSION['flash_success'] = "Pickup completed successfully!";
         header("Location: dashboard.php");
         exit();
-    } else {
-        $message = "Unable to confirm pickup. It may already be completed.";
+
+    } catch (Exception $e) {
+        if ($conn->inTransaction()) {
+            $conn->rollback();
+        }
+        $message = $e->getMessage();
     }
-    $stmt->close();
 }
 ?>
 
@@ -365,6 +391,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
     <!-- Main Container -->
     <main class="content-area">
 
+        <?php if (!empty($message)): ?>
+            <div class="status-card error" style="margin-bottom: 20px;">
+                <div class="status-dot"></div>
+                <span><?= htmlspecialchars($message); ?></span>
+            </div>
+        <?php endif; ?>
+
         <?php if ($id === 0) { ?>
 
             <!-- SCANNER VIEW -->
@@ -387,7 +420,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
                 <p class="helper-text"><i class="ri-focus-3-line"></i> Align the QR Code inside the glowing frame</p>
 
-                <div class="status-card">
+                <div class="status-card" id="scanner-status">
                     <div class="status-dot"></div>
                     <span>Waiting for QR...</span>
                 </div>
@@ -400,49 +433,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
             </div>
 
             <script>
-                let html5QrcodeScanner;
+                let html5QrCode = null;
 
                 function onScanSuccess(decodedText) {
+                    let activityId = null;
+
+                    // 1. Check if scanned string is JSON
                     try {
-                        const url = new URL(decodedText);
-                        const requestId = url.searchParams.get("id");
-                        if (requestId) {
-                            window.location.href = "verify_qr.php?id=" + encodeURIComponent(requestId);
-                        } else {
-                            alert("Invalid QR structure.");
+                        const json = JSON.parse(decodedText);
+                        if (json && json.activity_id) {
+                            activityId = json.activity_id;
                         }
                     } catch (e) {
-                        if (!isNaN(decodedText)) {
-                            window.location.href = "verify_qr.php?id=" + encodeURIComponent(decodedText);
-                        } else {
-                            alert("Invalid QR format.");
+                        // Not JSON
+                    }
+
+                    // 2. Check if scanned string is a URL with ?id=
+                    if (!activityId) {
+                        try {
+                            const url = new URL(decodedText);
+                            activityId = url.searchParams.get("id");
+                        } catch (e) {
+                            // Not URL
+                        }
+                    }
+
+                    // 3. Fallback: Direct numeric ID
+                    if (!activityId && !isNaN(decodedText.trim())) {
+                        activityId = decodedText.trim();
+                    }
+
+                    // Redirect if valid activity ID found
+                    if (activityId) {
+                        window.location.href = "verify_qr.php?id=" + encodeURIComponent(activityId);
+                    } else {
+                        alert("Invalid or unrecognized QR code format.");
+                    }
+                }
+
+                async function stopScannerIfScanning() {
+                    if (html5QrCode && html5QrCode.isScanning) {
+                        try {
+                            await html5QrCode.stop();
+                        } catch (err) {
+                            console.error("Error stopping scanner:", err);
                         }
                     }
                 }
 
-                function startScanner() {
-                    html5QrcodeScanner = new Html5Qrcode("reader");
-                    html5QrcodeScanner.start(
+                async function startScanner() {
+                    await stopScannerIfScanning();
+                    if (!html5QrCode) {
+                        html5QrCode = new Html5Qrcode("reader");
+                    }
+                    html5QrCode.start(
                         { facingMode: "environment" },
                         { fps: 10, qrbox: { width: 220, height: 220 } },
                         onScanSuccess
                     ).catch(err => {
                         console.error("Camera access failed", err);
+                        const statusSpan = document.querySelector('#scanner-status span');
+                        if (statusSpan) statusSpan.textContent = "Camera access denied or unavailable";
                     });
                 }
 
                 function restartScanner() {
-                    if (html5QrcodeScanner) {
-                        html5QrcodeScanner.stop().then(() => startScanner());
-                    } else {
-                        startScanner();
-                    }
+                    startScanner();
                 }
 
-                function scanFromFile(input) {
+                async function scanFromFile(input) {
                     if (input.files.length === 0) return;
                     const file = input.files[0];
-                    const html5QrCode = new Html5Qrcode("reader");
+                    await stopScannerIfScanning();
+
+                    if (!html5QrCode) {
+                        html5QrCode = new Html5Qrcode("reader");
+                    }
+
                     html5QrCode.scanFile(file, true)
                         .then(decodedText => onScanSuccess(decodedText))
                         .catch(err => alert("Could not parse QR from uploaded image."));
@@ -514,6 +581,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                         </div>
 
                         <form method="POST" style="margin-top: 20px;">
+                            <?php if (function_exists('csrf_field')) { csrf_field(); } ?>
                             <input type="hidden" name="activity_id" value="<?= htmlspecialchars($row['activity_id']); ?>">
 
                             <div class="info-grid">
@@ -523,15 +591,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                                 </div>
                                 <div class="info-item">
                                     <div class="info-label">Scrap Type</div>
-                                    <div class="info-value"><?= htmlspecialchars($row['scrap_type']); ?></div>
+                                    <div class="info-value"><?= htmlspecialchars($row['scrap_type'] ?? 'N/A'); ?></div>
                                 </div>
                                 <div class="info-item">
                                     <div class="info-label">Weight (kg)</div>
-                                    <input type="number" step="0.01" name="scrap_weight" class="form-control" value="<?= htmlspecialchars($row['scrap_weight'] ?? '0.00'); ?>" required>
+                                    <input type="number" step="0.01" min="0.01" name="scrap_weight" class="form-control" value="<?= htmlspecialchars($row['scrap_weight'] ?? '0.00'); ?>" required>
                                 </div>
                                 <div class="info-item">
                                     <div class="info-label">Amount (₹)</div>
-                                    <input type="number" step="0.01" name="amount" class="form-control" value="<?= htmlspecialchars($row['amount'] ?? '0.00'); ?>" required>
+                                    <input type="number" step="0.01" min="0.00" name="amount" class="form-control" value="<?= htmlspecialchars($row['amount'] ?? '0.00'); ?>" required>
                                 </div>
                                 <div class="info-item" style="grid-column: span 2;">
                                     <div class="info-label">Pickup Address</div>
