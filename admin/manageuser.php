@@ -1,867 +1,642 @@
 <?php
-session_start();
-require_once "../includes/db.php";
+// ==============================================================================
+// EcoScrap - Admin Manage Users (manage_users.php)
+// Integrated directly with `ecoscrap_db.user` & `ecoscrap_db.activity`
+// ==============================================================================
 
-if (!isset($_SESSION['role']) || $_SESSION['role'] != "Admin") {
-    header("Location: ../login.php");
-    exit();
+$db_host = "localhost";
+$db_user = "root";
+$db_pass = "";
+$db_name = "ecoscrap_db";
+
+try {
+    $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+} catch (PDOException $e) {
+    die("Database Connection Failed: " . $e->getMessage());
 }
 
-/*
-====================================
-TOGGLE USER STATUS (Disable/Enable)
-====================================
-*/
-if (isset($_GET['toggle_status']) && isset($_GET['current_status'])) {
-    $user_id = (int)$_GET['toggle_status'];
-    $new_status = ($_GET['current_status'] === 'Disabled') ? 'Active' : 'Disabled';
+// Handle Delete Request via POST
+$message = "";
+$messageType = "";
 
-    // Update status if your user table supports it, or handle session message
-    $stmt = $conn->prepare("UPDATE user SET status=? WHERE user_id=?");
-    if ($stmt) {
-        $stmt->bind_param("si", $new_status, $user_id);
-        if ($stmt->execute()) {
-            $_SESSION['msg'] = "User status updated to " . $new_status . ".";
-        } else {
-            $_SESSION['error'] = "Unable to update user status.";
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_user') {
+    $delete_id = filter_input(INPUT_POST, 'user_id', FILTER_VALIDATE_INT);
+    if ($delete_id) {
+        try {
+            $pdo->beginTransaction();
+
+            // Cascading deletion for related tables
+            // Delete associated records in activity table first to prevent foreign key errors
+            $pdo->prepare("DELETE FROM activity WHERE user_id = ?")->execute([$delete_id]);
+            
+            // Delete main user record
+            $stmt = $pdo->prepare("DELETE FROM `user` WHERE user_id = ?");
+            $stmt->execute([$delete_id]);
+
+            $pdo->commit();
+            $message = "User ID #{$delete_id} and all related activity logs deleted successfully.";
+            $messageType = "success";
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            $message = "Failed to delete user: " . $e->getMessage();
+            $messageType = "danger";
         }
-        $stmt->close();
-    } else {
-        $_SESSION['error'] = "Status column missing or query failed.";
     }
-
-    header("Location: manageuser.php");
-    exit();
 }
 
-/*
-====================================
-FETCH USERS WITH ACTIVITY COUNT
-====================================
-*/
-$query = "
-    SELECT 
-        u.*, 
-        COUNT(a.activity_id) AS total_pickups 
-    FROM user u 
-    LEFT JOIN activity a ON u.user_id = a.user_id 
-    GROUP BY u.user_id 
-    ORDER BY u.created_at DESC
-";
-$result = $conn->query($query);
+// Fetch Metrics
+$total_users = $pdo->query("SELECT COUNT(*) FROM `user`")->fetchColumn();
+
+// Count registered users this month
+$new_this_month = $pdo->query("
+    SELECT COUNT(*) FROM `user` 
+    WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) 
+      AND YEAR(created_at) = YEAR(CURRENT_DATE())
+")->fetchColumn();
+
+// Fetch All Users mapped with their actual activity counts from `activity` table
+$query = "SELECT u.*, 
+            COALESCE((SELECT COUNT(*) FROM activity a WHERE a.user_id = u.user_id), 0) AS total_pickups,
+            COALESCE((SELECT COUNT(*) FROM activity a WHERE a.user_id = u.user_id AND a.status = 'Completed'), 0) AS completed_pickups,
+            COALESCE((SELECT COUNT(*) FROM activity a WHERE a.user_id = u.user_id AND a.status = 'In Progress'), 0) AS in_progress_pickups
+          FROM `user` u ORDER BY u.user_id DESC";
+$users = $pdo->query($query)->fetchAll();
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Users | EcoScrap Admin</title>
-
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-    <!-- Phosphor Icons -->
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-
-    <!-- Export Libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    
+    <!-- Bootstrap 5 & Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
         :root {
-            --primary: #10B981;
-            --secondary: #047857;
-            --accent: #0EA5E9;
-            --bg-color: #F8FAFC;
-            --surface: rgba(255, 255, 255, 0.9);
-            --surface-border: rgba(15, 23, 42, 0.08);
-            --text-main: #0F172A;
-            --text-muted: #64748B;
-            --font-main: 'Inter', sans-serif;
-            --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+            --eco-primary: #10b981;
+            --eco-primary-dark: #059669;
+            --eco-dark: #0f172a;
+            --eco-light-bg: #f8fafc;
+            --eco-card-bg: #ffffff;
+            --eco-border-radius: 18px;
+            --eco-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05);
+            --eco-hover-shadow: 0 20px 35px -5px rgba(16, 185, 129, 0.12);
         }
 
         body {
-            font-family: var(--font-main);
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            line-height: 1.6;
-            padding: 40px 24px;
-            -webkit-font-smoothing: antialiased;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--eco-light-bg);
+            color: #334155;
+            padding-bottom: 3rem;
         }
 
-        .ambient-glow {
-            position: fixed;
-            top: -100px;
-            right: -100px;
-            width: 500px;
-            height: 500px;
-            background: radial-gradient(circle, rgba(16, 185, 129, 0.08) 0%, transparent 70%);
-            pointer-events: none;
-            z-index: 0;
+        .stat-card {
+            background: var(--eco-card-bg);
+            border: 1px solid #e2e8f0;
+            border-radius: var(--eco-border-radius);
+            padding: 1.5rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .workspace-container {
-            max-width: 1200px;
-            margin: 0 auto;
-            position: relative;
-            z-index: 1;
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--eco-shadow);
         }
 
-        .glass-card {
-            background: var(--surface);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--surface-border);
-            border-radius: 20px;
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.06);
-            transition: var(--transition);
-            padding: 24px;
-        }
-
-        /* Page Top Controls */
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
-            gap: 16px;
-        }
-
-        .header-title h1 {
-            font-size: 28px;
-            font-weight: 800;
-            letter-spacing: -0.03em;
-        }
-
-        .header-title p {
-            font-size: 14px;
-            color: var(--text-muted);
-        }
-
-        .controls-bar {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-wrap: wrap;
-            width: 100%;
-            margin-bottom: 20px;
-            justify-content: space-between;
-        }
-
-        .search-box {
-            position: relative;
-            flex: 1;
-            min-width: 260px;
-        }
-
-        .search-box i {
-            position: absolute;
-            left: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--text-muted);
-            font-size: 18px;
-        }
-
-        .search-input {
-            width: 100%;
-            padding: 10px 16px 10px 40px;
-            border: 1px solid var(--surface-border);
-            border-radius: 12px;
-            background: #FFFFFF;
-            font-family: var(--font-main);
-            font-size: 14px;
-            outline: none;
-            transition: var(--transition);
-        }
-
-        .search-input:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
-        }
-
-        .export-group {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn-export {
-            padding: 10px 16px;
-            border-radius: 12px;
-            font-size: 13px;
-            font-weight: 600;
-            border: 1px solid var(--surface-border);
-            background: #FFFFFF;
-            color: var(--text-main);
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            transition: var(--transition);
-        }
-
-        .btn-export:hover {
-            border-color: var(--primary);
-            color: var(--primary);
-        }
-
-        /* System Flash Alerts */
-        .alert {
-            padding: 12px 16px;
-            border-radius: 12px;
-            font-size: 14px;
-            margin-bottom: 20px;
-        }
-        .alert-success { background: #DCFCE7; color: #166534; }
-        .alert-danger { background: #FEE2E2; color: #991B1B; }
-
-        /* Data Table */
-        .table-responsive {
-            overflow-x: auto;
-        }
-
-        .custom-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-        }
-
-        .custom-table th {
-            padding: 14px 16px;
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            border-bottom: 1px solid var(--surface-border);
-            text-align: left;
-        }
-
-        .custom-table td {
-            padding: 16px;
-            font-size: 14px;
-            border-bottom: 1px solid var(--surface-border);
-            vertical-align: middle;
-        }
-
-        .user-profile-cell {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .user-avatar {
-            width: 42px;
-            height: 42px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 2px solid var(--primary);
-        }
-
-        /* Badges */
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .badge-active { background: #DCFCE7; color: #166534; }
-        .badge-disabled { background: #FEE2E2; color: #991B1B; }
-        .badge-count { background: #E0F2FE; color: #0369A1; font-weight: 700; }
-
-        /* Action Buttons */
-        .action-btns {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn-icon {
-            width: 34px;
-            height: 34px;
-            border-radius: 10px;
-            border: 1px solid var(--surface-border);
-            background: #FFFFFF;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            color: var(--text-main);
-            transition: var(--transition);
-            text-decoration: none;
-        }
-
-        .btn-icon:hover {
-            border-color: var(--primary);
-            color: var(--primary);
-        }
-
-        .btn-toggle-disable {
-            color: #DC2626;
-        }
-        .btn-toggle-disable:hover {
-            background: #FEE2E2;
-            border-color: #EF4444;
-            color: #DC2626;
-        }
-
-        .btn-toggle-enable {
-            color: #10B981;
-        }
-        .btn-toggle-enable:hover {
-            background: #DCFCE7;
-            border-color: #10B981;
-            color: #10B981;
-        }
-
-        /* Pagination Bar */
-        .pagination-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-top: 20px;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-
-        .page-info {
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-
-        .pagination-btns {
-            display: flex;
-            gap: 6px;
-        }
-
-        .btn-page {
-            padding: 6px 12px;
-            border-radius: 8px;
-            border: 1px solid var(--surface-border);
-            background: #FFFFFF;
-            font-size: 13px;
-            cursor: pointer;
-            transition: var(--transition);
-        }
-
-        .btn-page.active {
-            background: var(--primary);
-            color: #FFFFFF;
-            border-color: var(--primary);
-        }
-
-        .btn-page:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        /* Modal Viewer */
-        .modal-overlay {
-            position: fixed;
-            top: 0; left: 0;
-            width: 100vw; height: 100vh;
-            background: rgba(15, 23, 42, 0.4);
-            backdrop-filter: blur(8px);
+        .stat-card .icon-wrapper {
+            width: 52px;
+            height: 52px;
+            border-radius: 14px;
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 1000;
-            opacity: 0;
-            visibility: hidden;
-            transition: var(--transition);
+            font-size: 1.5rem;
         }
 
-        .modal-overlay.active {
-            opacity: 1;
-            visibility: visible;
-        }
-
-        .modal-box {
-            background: #FFFFFF;
-            border-radius: 20px;
-            padding: 32px;
-            max-width: 500px;
-            width: 90%;
-            border: 1px solid var(--surface-border);
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-            transform: scale(0.95);
-            transition: var(--transition);
-        }
-
-        .modal-overlay.active .modal-box {
-            transform: scale(1);
-        }
-
-        .modal-profile-header {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .modal-profile-header img {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 3px solid var(--primary);
-            margin-bottom: 12px;
-        }
-
-        .modal-details-list {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px 20px;
-            margin-bottom: 24px;
-        }
-
-        .modal-detail-item {
+        .user-card {
+            background: var(--eco-card-bg);
+            border: 1px solid #e2e8f0;
+            border-radius: var(--eco-border-radius);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            height: 100%;
             display: flex;
             flex-direction: column;
         }
 
-        .modal-detail-label {
-            font-size: 11px;
+        .user-card:hover {
+            transform: translateY(-5px);
+            border-color: #cbd5e1;
+            box-shadow: var(--eco-hover-shadow);
+        }
+
+        .avatar-circle {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #10b981, #047857);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             font-weight: 700;
-            color: var(--text-muted);
-            text-transform: uppercase;
+            font-size: 1.25rem;
+            object-fit: cover;
+            border: 2px solid #ecfdf5;
+            box-shadow: 0 4px 10px rgba(16, 185, 129, 0.2);
         }
 
-        .modal-detail-val {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-main);
-            word-break: break-word;
+        .info-pill {
+            background: #f1f5f9;
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 0.825rem;
         }
 
-        /* Responsive Mobile Layout */
-        @media (max-width: 768px) {
-            .custom-table, .custom-table thead, .custom-table tbody, .custom-table th, .custom-table td, .custom-table tr {
-                display: block;
-            }
+        .modal-content {
+            border-radius: 24px;
+            border: none;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
 
-            .custom-table thead {
-                display: none;
-            }
+        .btn-eco-primary {
+            background-color: var(--eco-primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
 
-            .custom-table tr {
-                margin-bottom: 16px;
-                border: 1px solid var(--surface-border);
-                border-radius: 16px;
-                padding: 16px;
-                background: #FFFFFF;
-            }
+        .btn-eco-primary:hover {
+            background-color: var(--eco-primary-dark);
+            color: white;
+        }
 
-            .custom-table td {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 8px 0;
-                border-bottom: 1px dashed var(--surface-border);
-            }
+        .btn-eco-soft {
+            background-color: #f0fdf4;
+            color: var(--eco-primary-dark);
+            border: 1px solid #bbf7d0;
+            border-radius: 10px;
+            font-weight: 600;
+        }
 
-            .custom-table td:last-child {
-                border-bottom: none;
-                padding-top: 12px;
-            }
+        .btn-eco-soft:hover {
+            background-color: #dcfce7;
+            color: #047857;
+        }
 
-            .custom-table td::before {
-                content: attr(data-label);
-                font-size: 12px;
-                font-weight: 700;
-                color: var(--text-muted);
-                text-transform: uppercase;
-            }
+        .search-input-group {
+            background: white;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            padding: 2px 8px;
+            transition: all 0.2s;
+        }
+
+        .search-input-group:focus-within {
+            border-color: var(--eco-primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+        }
+
+        .empty-state-icon {
+            width: 90px;
+            height: 90px;
+            background: #f0fdf4;
+            color: var(--eco-primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            margin: 0 auto 1.5rem;
         }
     </style>
 </head>
-
 <body>
 
-    <div class="ambient-glow"></div>
+<div class="container-fluid px-4 py-4">
 
-    <main class="workspace-container">
+    <!-- Flash Alert -->
+    <?php if (!empty($message)): ?>
+        <div class="alert alert-<?= $messageType ?> alert-dismissible fade show rounded-4 mb-4 shadow-sm" role="alert">
+            <i class="bi bi-info-circle-fill me-2"></i> <?= htmlspecialchars($message) ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    <?php endif; ?>
 
-        <!-- Top Header -->
-        <header class="page-header">
-            <div class="header-title">
-                <h1>Manage Users</h1>
-                <p>View accounts, search registered details, and track scrap pickup requests</p>
+    <!-- Header Section -->
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <h2 class="fw-bold mb-0 text-dark">Manage Users</h2>
+                <span class="badge rounded-pill px-3 py-2 fs-6" style="background:#d1fae5; color:#065f46;">
+                    <?= count($users) ?> Total Accounts
+                </span>
             </div>
-            <span class="badge badge-active" style="padding: 8px 16px; font-size: 14px;">
-                Total Users: <strong id="totalCountDisplay" style="margin-left: 6px;"><?= $result ? $result->num_rows : 0; ?></strong>
-            </span>
-        </header>
-
-        <!-- Flash Alerts -->
-        <?php if (isset($_SESSION['msg'])) { ?>
-            <div class="alert alert-success"><?= $_SESSION['msg']; unset($_SESSION['msg']); ?></div>
-        <?php } ?>
-        <?php if (isset($_SESSION['error'])) { ?>
-            <div class="alert alert-danger"><?= $_SESSION['error']; unset($_SESSION['error']); ?></div>
-        <?php } ?>
-
-        <div class="glass-card">
-
-            <!-- Controls (Search & Export) -->
-            <div class="controls-bar">
-                <div class="search-box">
-                    <i class="ph ph-magnifying-glass"></i>
-                    <input type="text" id="searchInput" class="search-input" placeholder="Search by name, email, place, phone...">
-                </div>
-
-                <div class="export-group">
-                    <button class="btn-export" onclick="exportToExcel()">
-                        <i class="ph ph-file-xls" style="color: #10B981; font-size: 18px;"></i> Excel
-                    </button>
-                    <button class="btn-export" onclick="exportToPDF()">
-                        <i class="ph ph-file-pdf" style="color: #EF4444; font-size: 18px;"></i> PDF
-                    </button>
-                </div>
-            </div>
-
-            <!-- Table View -->
-            <div class="table-responsive">
-                <table class="custom-table" id="usersTable">
-                    <thead>
-                        <tr>
-                            <th>User</th>
-                            <th>Email</th>
-                            <th>Phone</th>
-                            <th>Location</th>
-                            <th>Pickups</th>
-                            <th>Status</th>
-                            <th>Registered</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tableBody">
-                        <?php 
-                        if ($result && $result->num_rows > 0) {
-                            while ($row = $result->fetch_assoc()) { 
-                                $user_status = isset($row['status']) ? $row['status'] : 'Active';
-                                $profile_img = !empty($row['profile_image']) ? "../uploads/profile/" . $row['profile_image'] : "https://via.placeholder.com/80";
-                        ?>
-                                <tr class="user-row" 
-                                    data-id="<?= $row['user_id']; ?>"
-                                    data-name="<?= htmlspecialchars($row['name']); ?>"
-                                    data-email="<?= htmlspecialchars($row['email']); ?>"
-                                    data-phone="<?= htmlspecialchars($row['phone']); ?>"
-                                    data-address="<?= htmlspecialchars($row['address'] ?? ''); ?>"
-                                    data-place="<?= htmlspecialchars($row['place'] ?? ''); ?>"
-                                    data-district="<?= htmlspecialchars($row['district'] ?? ''); ?>"
-                                    data-state="<?= htmlspecialchars($row['state'] ?? ''); ?>"
-                                    data-pincode="<?= htmlspecialchars($row['pincode']); ?>"
-                                    data-registered="<?= date("d M Y", strtotime($row['created_at'])); ?>"
-                                    data-pickups="<?= $row['total_pickups']; ?>"
-                                    data-status="<?= $user_status; ?>"
-                                    data-img="<?= $profile_img; ?>">
-                                    
-                                    <td data-label="User">
-                                        <div class="user-profile-cell">
-                                            <img src="<?= $profile_img; ?>" class="user-avatar" alt="Profile">
-                                            <div>
-                                                <strong style="display: block; font-weight: 600;"><?= htmlspecialchars($row['name']); ?></strong>
-                                                <span style="font-size: 12px; color: var(--text-muted);">ID: #<?= $row['user_id']; ?></span>
-                                            </div>
-                                        </div>
-                                    </td>
-
-                                    <td data-label="Email"><?= htmlspecialchars($row['email']); ?></td>
-
-                                    <td data-label="Phone"><?= htmlspecialchars($row['phone']); ?></td>
-
-                                    <td data-label="Location">
-                                        <?= htmlspecialchars($row['place'] ?? 'N/A'); ?>, <br>
-                                        <span style="font-size: 12px; color: var(--text-muted);"><?= htmlspecialchars($row['district'] ?? ''); ?></span>
-                                    </td>
-
-                                    <td data-label="Pickups">
-                                        <span class="badge badge-count">
-                                            <i class="ph ph-arrows-counter-clockwise" style="margin-right: 4px;"></i> <?= $row['total_pickups']; ?>
-                                        </span>
-                                    </td>
-
-                                    <td data-label="Status">
-                                        <?php if ($user_status === 'Disabled'): ?>
-                                            <span class="badge badge-disabled">Disabled</span>
-                                        <?php else: ?>
-                                            <span class="badge badge-active">Active</span>
-                                        <?php endif; ?>
-                                    </td>
-
-                                    <td data-label="Registered"><?= date("d M Y", strtotime($row['created_at'])); ?></td>
-
-                                    <td data-label="Actions">
-                                        <div class="action-btns">
-                                            <button class="btn-icon" title="View Profile Modal" onclick="openProfileModal(this)">
-                                                <i class="ph ph-eye"></i>
-                                            </button>
-
-                                            <?php if ($user_status === 'Disabled'): ?>
-                                                <a href="?toggle_status=<?= $row['user_id']; ?>&current_status=Disabled" 
-                                                   class="btn-icon btn-toggle-enable" 
-                                                   title="Enable Account"
-                                                   onclick="return confirm('Re-enable access for this user?');">
-                                                    <i class="ph ph-check-circle"></i>
-                                                </a>
-                                            <?php else: ?>
-                                                <a href="?toggle_status=<?= $row['user_id']; ?>&current_status=Active" 
-                                                   class="btn-icon btn-toggle-disable" 
-                                                   title="Disable Account"
-                                                   onclick="return confirm('Disable this user\'s access?');">
-                                                    <i class="ph ph-prohibit"></i>
-                                                </a>
-                                            <?php endif; ?>
-                                        </div>
-                                    </td>
-
-                                </tr>
-                        <?php 
-                            } 
-                        } else {
-                        ?>
-                            <tr>
-                                <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 40px;">
-                                    No registered users found.
-                                </td>
-                            </tr>
-                        <?php } ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Pagination Bar -->
-            <div class="pagination-bar">
-                <div class="page-info" id="pageInfo">Showing 0 of 0 users</div>
-                <div class="pagination-btns" id="paginationBtns"></div>
-            </div>
-
+            <p class="text-muted mb-0 mt-1">View, manage, and monitor all registered EcoScrap accounts.</p>
         </div>
 
-    </main>
-
-    <!-- Modal View -->
-    <div class="modal-overlay" id="profileModal">
-        <div class="modal-box">
-            <div class="modal-profile-header">
-                <img id="modalImg" src="" alt="Profile Picture">
-                <h3 id="modalName" style="font-size: 20px; font-weight: 700;"></h3>
-                <span id="modalStatusBadge" class="badge"></span>
+        <!-- Controls Toolbar -->
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <div class="search-input-group d-flex align-items-center">
+                <i class="bi bi-search text-muted ms-2"></i>
+                <input type="text" id="searchInput" class="form-control border-0 shadow-none" placeholder="Search name, email, district, place..." style="width: 260px;">
             </div>
 
-            <div class="modal-details-list">
-                <div class="modal-detail-item">
-                    <span class="modal-detail-label">User ID</span>
-                    <span class="modal-detail-val" id="modalId"></span>
-                </div>
-                <div class="modal-detail-item">
-                    <span class="modal-detail-label">Phone</span>
-                    <span class="modal-detail-val" id="modalPhone"></span>
-                </div>
-                <div class="modal-detail-item" style="grid-column: span 2;">
-                    <span class="modal-detail-label">Email</span>
-                    <span class="modal-detail-val" id="modalEmail"></span>
-                </div>
-                <div class="modal-detail-item" style="grid-column: span 2;">
-                    <span class="modal-detail-label">Address</span>
-                    <span class="modal-detail-val" id="modalAddress"></span>
-                </div>
-                <div class="modal-detail-item">
-                    <span class="modal-detail-label">Place</span>
-                    <span class="modal-detail-val" id="modalPlace"></span>
-                </div>
-                <div class="modal-detail-item">
-                    <span class="modal-detail-label">District</span>
-                    <span class="modal-detail-val" id="modalDistrict"></span>
-                </div>
-                <div class="modal-detail-item">
-                    <span class="modal-detail-label">Pincode</span>
-                    <span class="modal-detail-val" id="modalPincode"></span>
-                </div>
-                <div class="modal-detail-item">
-                    <span class="modal-detail-label">Total Requests</span>
-                    <span class="modal-detail-val" id="modalPickups"></span>
-                </div>
-                <div class="modal-detail-item" style="grid-column: span 2;">
-                    <span class="modal-detail-label">Registered Date</span>
-                    <span class="modal-detail-val" id="modalRegistered"></span>
+            <select id="districtFilter" class="form-select border-slate-300 rounded-3" style="width: auto;">
+                <option value="all">All Districts</option>
+                <?php 
+                $districts = array_unique(array_column($users, 'district'));
+                foreach ($districts as $dist):
+                    if ($dist):
+                ?>
+                    <option value="<?= strtolower(htmlspecialchars($dist)) ?>"><?= htmlspecialchars($dist) ?></option>
+                <?php 
+                    endif;
+                endforeach; 
+                ?>
+            </select>
+
+            <select id="sortFilter" class="form-select border-slate-300 rounded-3" style="width: auto;">
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Statistics Grid -->
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="stat-card">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted fw-medium fs-7">Total Registered</span>
+                        <h3 class="fw-bold text-dark mt-1 mb-0"><?= number_format($total_users) ?></h3>
+                    </div>
+                    <div class="icon-wrapper" style="background: #ecfdf5; color: #059669;">
+                        <i class="bi bi-people-fill"></i>
+                    </div>
                 </div>
             </div>
+        </div>
 
-            <div style="text-align: right;">
-                <button class="btn-export" onclick="closeProfileModal()">Close</button>
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="stat-card">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted fw-medium fs-7">Joined This Month</span>
+                        <h3 class="fw-bold text-dark mt-1 mb-0"><?= number_format($new_this_month) ?></h3>
+                    </div>
+                    <div class="icon-wrapper" style="background: #e0f2fe; color: #0284c7;">
+                        <i class="bi bi-person-plus-fill"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="stat-card">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted fw-medium fs-7">Active Activity Users</span>
+                        <h3 class="fw-bold text-dark mt-1 mb-0">
+                            <?= count(array_filter($users, fn($u) => $u['total_pickups'] > 0)) ?>
+                        </h3>
+                    </div>
+                    <div class="icon-wrapper" style="background: #fef3c7; color: #d97706;">
+                        <i class="bi bi-recycle"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="stat-card">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted fw-medium fs-7">Districts Covered</span>
+                        <h3 class="fw-bold text-dark mt-1 mb-0"><?= count($districts) ?></h3>
+                    </div>
+                    <div class="icon-wrapper" style="background: #f3e8ff; color: #7e22ce;">
+                        <i class="bi bi-geo-alt-fill"></i>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <script>
-        // Global Table Controls
-        const rowsPerPage = 10;
-        let currentPage = 1;
-        let allRows = Array.from(document.querySelectorAll('.user-row'));
-        let filteredRows = [...allRows];
+    <!-- User Cards Container -->
+    <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4" id="userCardsGrid">
+        <?php foreach ($users as $user): 
+            $name_parts = explode(' ', trim($user['name']));
+            $initials = strtoupper(substr($name_parts[0], 0, 1) . (isset($name_parts[1]) ? substr($name_parts[1], 0, 1) : ''));
+        ?>
+        <div class="col user-card-item" 
+             data-id="<?= $user['user_id'] ?>"
+             data-name="<?= strtolower(htmlspecialchars($user['name'])) ?>"
+             data-email="<?= strtolower(htmlspecialchars($user['email'])) ?>"
+             data-phone="<?= htmlspecialchars($user['phone']) ?>"
+             data-district="<?= strtolower(htmlspecialchars($user['district'])) ?>"
+             data-place="<?= strtolower(htmlspecialchars($user['place'])) ?>"
+             data-date="<?= strtotime($user['created_at']) ?>">
+            
+            <div class="user-card p-4">
+                <!-- Card Header -->
+                <div class="d-flex align-items-start justify-content-between mb-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <?php if (!empty($user['profile_image'])): ?>
+                            <img src="uploads/profiles/<?= htmlspecialchars($user['profile_image']) ?>" class="avatar-circle" alt="Profile" onerror="this.outerHTML='<div class=\'avatar-circle\'><?= $initials ?></div>'">
+                        <?php else: ?>
+                            <div class="avatar-circle"><?= $initials ?></div>
+                        <?php endif; ?>
+                        <div>
+                            <h6 class="fw-bold mb-0 text-dark"><?= htmlspecialchars($user['name']) ?></h6>
+                            <small class="text-muted">User ID: #<?= sprintf('%04d', $user['user_id']) ?></small>
+                        </div>
+                    </div>
+                </div>
 
-        const searchInput = document.getElementById('searchInput');
-        const pageInfo = document.getElementById('pageInfo');
-        const paginationBtns = document.getElementById('paginationBtns');
+                <!-- Contact & Location Info -->
+                <div class="vstack gap-2 mb-3">
+                    <div class="d-flex align-items-center text-muted fs-7">
+                        <i class="bi bi-envelope me-2 text-success"></i>
+                        <span class="text-truncate"><?= htmlspecialchars($user['email']) ?></span>
+                    </div>
+                    <div class="d-flex align-items-center text-muted fs-7">
+                        <i class="bi bi-telephone me-2 text-success"></i>
+                        <span><?= htmlspecialchars($user['phone']) ?></span>
+                    </div>
+                    <div class="d-flex align-items-center text-muted fs-7">
+                        <i class="bi bi-geo-alt me-2 text-success"></i>
+                        <span class="text-truncate">
+                            <?= htmlspecialchars($user['address']) ?>, <?= htmlspecialchars($user['place']) ?>, <?= htmlspecialchars($user['district']) ?> - <?= htmlspecialchars($user['pincode']) ?>
+                        </span>
+                    </div>
+                </div>
 
-        // Render Table Pagination View
-        function renderTable() {
-            const total = filteredRows.length;
-            const start = (currentPage - 1) * rowsPerPage;
-            const end = start + rowsPerPage;
+                <!-- Stats Summary Pill -->
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <div class="info-pill text-center">
+                            <span class="d-block text-muted fs-8">Total Pickups</span>
+                            <span class="fw-bold text-dark"><?= $user['total_pickups'] ?></span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="info-pill text-center">
+                            <span class="d-block text-muted fs-8">Completed</span>
+                            <span class="fw-bold text-success"><?= $user['completed_pickups'] ?></span>
+                        </div>
+                    </div>
+                </div>
 
-            allRows.forEach(row => row.style.display = 'none');
+                <!-- Footer Timestamp & Actions -->
+                <div class="mt-auto pt-3 border-top d-flex align-items-center justify-content-between">
+                    <small class="text-muted" style="font-size: 0.75rem;">
+                        <i class="bi bi-calendar3 me-1"></i> Joined <?= date('M d, Y', strtotime($user['created_at'])) ?>
+                    </small>
+                    
+                    <div class="btn-group gap-1">
+                        <button type="button" 
+                                class="btn btn-sm btn-eco-soft view-btn" 
+                                data-bs-toggle="modal" 
+                                data-bs-target="#viewDetailsModal"
+                                data-user='<?= json_encode($user, JSON_HEX_APOS | JSON_HEX_QUOT) ?>'>
+                            <i class="bi bi-eye"></i> View
+                        </button>
 
-            const currentBatch = filteredRows.slice(start, end);
-            currentBatch.forEach(row => row.style.display = '');
+                        <button type="button" 
+                                class="btn btn-sm btn-outline-danger border-0 delete-btn" 
+                                data-bs-toggle="modal" 
+                                data-bs-target="#deleteConfirmModal"
+                                data-userid="<?= $user['user_id'] ?>"
+                                data-username="<?= htmlspecialchars($user['name']) ?>"
+                                data-useremail="<?= htmlspecialchars($user['email']) ?>">
+                            <i class="bi bi-trash3"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    </div>
 
-            pageInfo.innerText = total > 0 
-                ? `Showing ${start + 1} to ${Math.min(end, total)} of ${total} users` 
-                : 'No matching users found';
+    <!-- Empty State -->
+    <div id="emptyState" class="text-center py-5 d-none">
+        <div class="empty-state-icon">
+            <i class="bi bi-search"></i>
+        </div>
+        <h4 class="fw-bold text-dark mb-2">No users found</h4>
+        <p class="text-muted mb-4">We couldn't find any accounts matching your search or location filter.</p>
+        <button class="btn btn-eco-primary px-4 py-2" onclick="resetFilters()">
+            <i class="bi bi-arrow-counterclockwise me-2"></i> Reset Filters
+        </button>
+    </div>
 
-            renderPaginationControls(total);
-        }
+</div>
 
-        // Render Page Numbers
-        function renderPaginationControls(total) {
-            paginationBtns.innerHTML = '';
-            const pageCount = Math.ceil(total / rowsPerPage);
+<!-- View Details Modal -->
+<div class="modal fade" id="viewDetailsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">User Details Overview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="d-flex align-items-center gap-3 mb-4">
+                    <div id="modalAvatar" class="avatar-circle fs-4" style="width:64px; height:64px;"></div>
+                    <div>
+                        <h5 id="modalUserName" class="fw-bold mb-0"></h5>
+                        <small id="modalUserID" class="text-muted d-block"></small>
+                    </div>
+                </div>
 
-            if (pageCount <= 1) return;
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="text-muted fs-8 d-block">Email Address</label>
+                        <span id="modalUserEmail" class="fw-semibold text-dark"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted fs-8 d-block">Phone Number</label>
+                        <span id="modalUserPhone" class="fw-semibold text-dark"></span>
+                    </div>
+                    <div class="col-12">
+                        <label class="text-muted fs-8 d-block">Full Address</label>
+                        <span id="modalUserAddress" class="fw-semibold text-dark"></span>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="text-muted fs-8 d-block">Place</label>
+                        <span id="modalUserPlace" class="fw-semibold text-dark"></span>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="text-muted fs-8 d-block">District</label>
+                        <span id="modalUserDistrict" class="fw-semibold text-dark"></span>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="text-muted fs-8 d-block">Pincode</label>
+                        <span id="modalUserPincode" class="fw-semibold text-dark"></span>
+                    </div>
+                </div>
 
-            for (let i = 1; i <= pageCount; i++) {
-                const btn = document.createElement('button');
-                btn.className = `btn-page ${i === currentPage ? 'active' : ''}`;
-                btn.innerText = i;
-                btn.onclick = () => {
-                    currentPage = i;
-                    renderTable();
-                };
-                paginationBtns.appendChild(btn);
+                <hr class="my-4">
+
+                <h6 class="fw-bold mb-3">Scrap Activity Overview</h6>
+                <div class="row g-3">
+                    <div class="col-4 text-center p-3 border rounded-3 bg-light">
+                        <span class="d-block text-muted fs-8">Total Pickups</span>
+                        <h4 id="modalTotalPickups" class="fw-bold mb-0">0</h4>
+                    </div>
+                    <div class="col-4 text-center p-3 border rounded-3 bg-light">
+                        <span class="d-block text-muted fs-8">Completed</span>
+                        <h4 id="modalCompletedPickups" class="fw-bold text-success mb-0">0</h4>
+                    </div>
+                    <div class="col-4 text-center p-3 border rounded-3 bg-light">
+                        <span class="d-block text-muted fs-8">In Progress</span>
+                        <h4 id="modalInProgressPickups" class="fw-bold text-warning mb-0">0</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content text-center p-4">
+            <div class="text-danger mb-3">
+                <i class="bi bi-exclamation-triangle-fill display-3"></i>
+            </div>
+            <h4 class="fw-bold text-dark">Confirm Deletion</h4>
+            <p class="text-muted mb-3">
+                Are you sure you want to delete user <strong id="deleteTargetName"></strong>?
+                This will remove their profile and associated pickup records from the database.
+            </p>
+
+            <div class="p-3 bg-light rounded-3 text-start mb-4 fs-7">
+                <div><strong>User ID:</strong> #<span id="deleteTargetId"></span></div>
+                <div><strong>Email:</strong> <span id="deleteTargetEmail"></span></div>
+            </div>
+
+            <form method="POST" action="manage_users.php">
+                <input type="hidden" name="action" value="delete_user">
+                <input type="hidden" name="user_id" id="deleteTargetInput">
+
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-light px-4 rounded-3" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger px-4 rounded-3">Delete Permanently</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('searchInput');
+    const districtFilter = document.getElementById('districtFilter');
+    const sortFilter = document.getElementById('sortFilter');
+    const userGrid = document.getElementById('userCardsGrid');
+    const emptyState = document.getElementById('emptyState');
+    const cardItems = Array.from(document.querySelectorAll('.user-card-item'));
+
+    function filterAndSortCards() {
+        const query = searchInput.value.toLowerCase().trim();
+        const distVal = districtFilter.value;
+        const sortVal = sortFilter.value;
+
+        let visibleCount = 0;
+
+        cardItems.forEach(card => {
+            const name = card.dataset.name;
+            const email = card.dataset.email;
+            const phone = card.dataset.phone;
+            const district = card.dataset.district;
+            const place = card.dataset.place;
+            const id = card.dataset.id;
+
+            const matchesSearch = name.includes(query) || 
+                                  email.includes(query) || 
+                                  phone.includes(query) || 
+                                  district.includes(query) || 
+                                  place.includes(query) || 
+                                  id.includes(query);
+
+            const matchesDistrict = (distVal === 'all') || (district === distVal);
+
+            if (matchesSearch && matchesDistrict) {
+                card.style.display = '';
+                visibleCount++;
+            } else {
+                card.style.display = 'none';
             }
-        }
-
-        // Live Search Filter
-        searchInput.addEventListener('keyup', function () {
-            const query = this.value.toLowerCase().trim();
-
-            filteredRows = allRows.filter(row => {
-                const name = row.dataset.name.toLowerCase();
-                const email = row.dataset.email.toLowerCase();
-                const phone = row.dataset.phone.toLowerCase();
-                const place = row.dataset.place.toLowerCase();
-
-                return name.includes(query) || email.includes(query) || phone.includes(query) || place.includes(query);
-            });
-
-            currentPage = 1;
-            renderTable();
         });
 
-        // Open Profile Details Modal
-        function openProfileModal(btn) {
-            const tr = btn.closest('tr');
-            
-            document.getElementById('modalImg').src = tr.dataset.img;
-            document.getElementById('modalName').innerText = tr.dataset.name;
-            document.getElementById('modalId').innerText = '#' + tr.dataset.id;
-            document.getElementById('modalEmail').innerText = tr.dataset.email;
-            document.getElementById('modalPhone').innerText = tr.dataset.phone;
-            document.getElementById('modalAddress').innerText = tr.dataset.address || 'N/A';
-            document.getElementById('modalPlace').innerText = tr.dataset.place || 'N/A';
-            document.getElementById('modalDistrict').innerText = tr.dataset.district || 'N/A';
-            document.getElementById('modalPincode').innerText = tr.dataset.pincode;
-            document.getElementById('modalPickups').innerText = tr.dataset.pickups + ' Requests';
-            document.getElementById('modalRegistered').innerText = tr.dataset.registered;
+        // Sorting
+        const visibleCards = cardItems.filter(c => c.style.display !== 'none');
+        visibleCards.sort((a, b) => {
+            const dateA = parseInt(a.dataset.date);
+            const dateB = parseInt(b.dataset.date);
+            return sortVal === 'newest' ? dateB - dateA : dateA - dateB;
+        });
 
-            const statusBadge = document.getElementById('modalStatusBadge');
-            if(tr.dataset.status === 'Disabled') {
-                statusBadge.className = 'badge badge-disabled';
-                statusBadge.innerText = 'Disabled';
-            } else {
-                statusBadge.className = 'badge badge-active';
-                statusBadge.innerText = 'Active';
-            }
+        visibleCards.forEach(card => userGrid.appendChild(card));
+        emptyState.classList.toggle('d-none', visibleCount > 0);
+    }
 
-            document.getElementById('profileModal').classList.add('active');
-        }
+    searchInput.addEventListener('input', filterAndSortCards);
+    districtFilter.addEventListener('change', filterAndSortCards);
+    sortFilter.addEventListener('change', filterAndSortCards);
 
-        function closeProfileModal() {
-            document.getElementById('profileModal').classList.remove('active');
-        }
+    window.resetFilters = function() {
+        searchInput.value = '';
+        districtFilter.value = 'all';
+        sortFilter.value = 'newest';
+        filterAndSortCards();
+    };
 
-        // Close Modal Overlay Click
-        window.onclick = function(e) {
-            if (e.target.classList.contains('modal-overlay')) {
-                closeProfileModal();
-            }
-        };
+    // View Details Modal
+    const viewModal = document.getElementById('viewDetailsModal');
+    viewModal.addEventListener('show.bs.modal', (e) => {
+        const button = e.relatedTarget;
+        const userData = JSON.parse(button.dataset.user);
 
-        // Export to Excel
-        function exportToExcel() {
-            const data = filteredRows.map(row => ({
-                "User ID": row.dataset.id,
-                "Name": row.dataset.name,
-                "Email": row.dataset.email,
-                "Phone": row.dataset.phone,
-                "Place": row.dataset.place,
-                "District": row.dataset.district,
-                "Pincode": row.dataset.pincode,
-                "Total Pickups": row.dataset.pickups,
-                "Status": row.dataset.status,
-                "Registered": row.dataset.registered
-            }));
+        document.getElementById('modalUserName').textContent = userData.name;
+        document.getElementById('modalUserID').textContent = `User ID: #${String(userData.user_id).padStart(4, '0')}`;
+        document.getElementById('modalUserEmail').textContent = userData.email;
+        document.getElementById('modalUserPhone').textContent = userData.phone;
+        document.getElementById('modalUserAddress').textContent = userData.address;
+        document.getElementById('modalUserPlace').textContent = userData.place;
+        document.getElementById('modalUserDistrict').textContent = userData.district;
+        document.getElementById('modalUserPincode').textContent = userData.pincode;
+        document.getElementById('modalTotalPickups').textContent = userData.total_pickups;
+        document.getElementById('modalCompletedPickups').textContent = userData.completed_pickups;
+        document.getElementById('modalInProgressPickups').textContent = userData.in_progress_pickups;
 
-            const worksheet = XLSX.utils.json_to_sheet(data);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Users");
-            XLSX.writeFile(workbook, "Registered_Users_Report.xlsx");
-        }
+        const initials = userData.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        document.getElementById('modalAvatar').textContent = initials;
+    });
 
-        // Export to PDF
-        function exportToPDF() {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
+    // Delete Modal
+    const deleteModal = document.getElementById('deleteConfirmModal');
+    deleteModal.addEventListener('show.bs.modal', (e) => {
+        const button = e.relatedTarget;
+        document.getElementById('deleteTargetId').textContent = button.dataset.userid;
+        document.getElementById('deleteTargetName').textContent = button.dataset.username;
+        document.getElementById('deleteTargetEmail').textContent = button.dataset.useremail;
+        document.getElementById('deleteTargetInput').value = button.dataset.userid;
+    });
+});
+</script>
 
-            doc.text("EcoScrap - Registered Users Report", 14, 15);
-
-            const body = filteredRows.map(row => [
-                row.dataset.id,
-                row.dataset.name,
-                row.dataset.email,
-                row.dataset.phone,
-                `${row.dataset.place}, ${row.dataset.district}`,
-                row.dataset.pickups,
-                row.dataset.status
-            ]);
-
-            doc.autoTable({
-                head: [["ID", "Name", "Email", "Phone", "Location", "Requests", "Status"]],
-                body: body,
-                startY: 22,
-                styles: { fontSize: 8 }
-            });
-
-            doc.save("Registered_Users_Report.pdf");
-        }
-
-        // Initialize Table
-        renderTable();
-    </script>
 </body>
-
 </html>

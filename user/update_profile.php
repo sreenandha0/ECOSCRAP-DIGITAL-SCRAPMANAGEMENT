@@ -43,17 +43,11 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
         empty($state) ||
         empty($pincode)
     ) {
-
         $error = "All fields are required.";
-
     } elseif (!preg_match('/^[0-9]{10}$/', $phone)) {
-
         $error = "Phone number must be 10 digits.";
-
     } elseif (!preg_match('/^[0-9]{6}$/', $pincode)) {
-
         $error = "Pincode must be 6 digits.";
-
     } else {
 
         // Keep old image by default
@@ -63,13 +57,10 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
         if (!empty($_FILES['profile_image']['name'])) {
 
             $allowed = ['jpg','jpeg','png','webp'];
-
             $extension = strtolower(pathinfo($_FILES['profile_image']['name'], PATHINFO_EXTENSION));
 
             if (in_array($extension, $allowed)) {
-
                 $profile_image = uniqid() . "." . $extension;
-
                 $uploadPath = "../uploads/profile/" . $profile_image;
 
                 if (move_uploaded_file($_FILES['profile_image']['tmp_name'], $uploadPath)) {
@@ -77,17 +68,14 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
                     // Delete old image
                     if (!empty($user['profile_image']) &&
                         file_exists("../uploads/profile/" . $user['profile_image'])) {
-
                         unlink("../uploads/profile/" . $user['profile_image']);
                     }
 
                 } else {
-
                     $error = "Failed to upload image.";
                 }
 
             } else {
-
                 $error = "Only JPG, JPEG, PNG and WEBP images are allowed.";
             }
         }
@@ -95,7 +83,6 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
         if (empty($error)) {
 
             $update = $conn->prepare("UPDATE user SET
-
                 name=?,
                 phone=?,
                 address=?,
@@ -104,13 +91,10 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
                 state=?,
                 pincode=?,
                 profile_image=?
-
                 WHERE user_id=?");
 
             $update->bind_param(
-
                 "ssssssssi",
-
                 $name,
                 $phone,
                 $address,
@@ -120,18 +104,13 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
                 $pincode,
                 $profile_image,
                 $user_id
-
             );
 
             if ($update->execute()) {
-
                 $_SESSION['success'] = "Profile updated successfully.";
-
                 header("Location: profile.php");
                 exit();
-
             } else {
-
                 $error = "Something went wrong.";
             }
 
@@ -164,7 +143,7 @@ $image = (!empty($user['profile_image']) && file_exists("../uploads/profile/" . 
   
   /* Backgrounds & Surface */
   --bg-color: #F8FAFC;
-  --surface: rgba(255, 255, 255, 0.75);
+  --surface: #FFFFFF;
   --surface-border: rgba(15, 23, 42, 0.08);
   
   /* Text */
@@ -174,8 +153,9 @@ $image = (!empty($user['profile_image']) && file_exists("../uploads/profile/" . 
   /* Utilities */
   --font-main: 'Inter', sans-serif;
   --transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
-  --mouse-x: 50%;
-  --mouse-y: 50%;
+  --radius-lg: 20px;
+  --radius-md: 12px;
+  --shadow-card: 0 10px 30px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.02);
 }
 
 * {
@@ -194,8 +174,33 @@ body {
 }
 
 /* ==========================================
-   LOGO STYLES
+   WIRE FRAME TOP NAVBAR
    ========================================== */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .logo {
   font-weight: 700;
   font-size: 18px;
@@ -215,70 +220,18 @@ body {
   flex-shrink: 0;
 }
 
-/* ==========================================
-   WIRE FRAME TOP NAVBAR
-   ========================================== */
-.navbar {
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--surface-border);
-}
-
-.nav-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 10px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* Left Zone */
-.nav-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.nav-toggle-btn {
-  background: none;
-  border: none;
-  color: var(--text-main);
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: var(--transition);
-}
-.nav-toggle-btn:hover {
-  background: rgba(15, 23, 42, 0.05);
-}
-
-/* Center Zone */
 .nav-center {
   font-weight: 700;
   font-size: 15px;
   color: var(--text-main);
-  letter-spacing: -0.01em;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
-/* Right Zone */
 .nav-right {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-/* Navbar Back to Profile Button */
 .nav-back-btn {
   display: inline-flex;
   align-items: center;
@@ -297,48 +250,14 @@ body {
   background: rgba(15, 23, 42, 0.1);
 }
 
-.nav-icon-btn {
-  position: relative;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: var(--transition);
-  text-decoration: none;
-}
-
-.nav-icon-btn:hover {
-  background: rgba(15, 23, 42, 0.05);
-  color: var(--text-main);
-}
-
-.notification-dot {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 7px;
-  height: 7px;
-  background: var(--primary);
-  border-radius: 50%;
-  border: 2px solid white;
-}
-
 /* User Dropdown */
-.dropdown {
-  position: relative;
-}
+.dropdown { position: relative; }
 
 .user-dropdown-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.7);
+  background: white;
   border: 1px solid var(--surface-border);
   padding: 4px 12px 4px 6px;
   border-radius: 20px;
@@ -348,11 +267,6 @@ body {
   font-size: 13px;
   color: var(--text-main);
   transition: var(--transition);
-}
-
-.user-dropdown-btn:hover {
-  background: white;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
 }
 
 .nav-avatar-sm {
@@ -397,86 +311,108 @@ body {
   color: var(--primary);
 }
 
-.dropdown-item.danger:hover {
-  background: rgba(239, 68, 68, 0.08);
-  color: var(--danger);
-}
-
 .dropdown-divider {
   height: 1px;
   background: var(--surface-border);
   margin: 4px 0;
 }
 
-/* Dashboard Shell */
+/* ==========================================
+   LAYOUT GRID CONTAINER
+   ========================================== */
 .dashboard-shell {
-  max-width: 900px;
+  max-width: 1100px;
   margin: 0 auto;
-  padding: 32px 20px;
+  padding: 32px 20px 60px;
 }
 
-/* Glass Card */
-.glass-card {
-  background: var(--surface);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--surface-border);
-  border-radius: 20px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
-  padding: 36px;
-}
-
-/* Mouse Glow Effect */
-.mouse-glow {
-  position: relative;
-  overflow: hidden;
-}
-.mouse-glow::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: radial-gradient(
-    700px circle at var(--mouse-x) var(--mouse-y),
-    rgba(16, 185, 129, 0.08),
-    transparent 45%
-  );
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-.mouse-glow:hover::before { opacity: 1; }
-.mouse-glow > * { position: relative; z-index: 1; }
-
-/* Alert Styling */
-.alert-danger-custom {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  color: var(--danger);
-  padding: 12px 16px;
-  border-radius: 12px;
-  font-size: 13px;
-  font-weight: 600;
+.page-header {
   margin-bottom: 24px;
+}
+
+.page-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Main Cards Grid */
+.profile-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+/* Common Card Base */
+.grid-card {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 28px;
+  transition: var(--transition);
+}
+
+.grid-card-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--surface-border);
 }
 
-/* Profile Upload Frame */
+.card-header-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.card-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Sidebar Profile Photo Card */
+.avatar-card {
+  text-align: center;
+}
+
 .avatar-upload-wrapper {
   position: relative;
-  width: 120px;
-  height: 120px;
-  margin: 0 auto 12px;
+  width: 130px;
+  height: 130px;
+  margin: 0 auto 16px;
 }
 
 .avatar-frame {
-  width: 120px;
-  height: 120px;
+  width: 130px;
+  height: 130px;
   border-radius: 50%;
   padding: 4px;
   background: linear-gradient(135deg, var(--primary), var(--accent));
-  box-shadow: 0 10px 25px rgba(16, 185, 129, 0.25);
+  box-shadow: 0 10px 25px rgba(16, 185, 129, 0.2);
 }
 
 .avatar-frame img {
@@ -491,34 +427,56 @@ body {
 .file-input-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  background: white;
-  border: 1px solid var(--surface-border);
-  border-radius: 20px;
-  font-size: 12px;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px dashed var(--primary);
+  border-radius: var(--radius-md);
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-main);
+  color: var(--primary);
   cursor: pointer;
   transition: var(--transition);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
 .file-input-trigger:hover {
-  border-color: var(--primary);
-  color: var(--primary);
+  background: var(--primary);
+  color: white;
 }
 
-.hidden-file-input {
-  display: none;
+.hidden-file-input { display: none; }
+
+.user-meta-info {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--surface-border);
 }
 
-/* Form Layout */
-.form-grid {
+.meta-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  background: rgba(15, 23, 42, 0.05);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+/* Form Section Stack */
+.form-cards-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Inner Form Grid Systems */
+.card-form-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
-  margin-top: 24px;
+  gap: 18px;
 }
 
 .full-width { grid-column: 1 / -1; }
@@ -539,8 +497,8 @@ body {
   font-size: 14px;
   font-family: var(--font-main);
   border: 1px solid var(--surface-border);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.9);
+  border-radius: var(--radius-md);
+  background: var(--bg-color);
   color: var(--text-main);
   transition: var(--transition);
   outline: none;
@@ -559,21 +517,21 @@ body {
   border-color: transparent;
 }
 
-/* Action Buttons */
-.form-actions {
+/* Action Bar Card */
+.actions-card {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 12px;
-  margin-top: 32px;
+  padding: 20px 28px;
 }
 
 .btn-primary-custom {
-  padding: 10px 24px;
+  padding: 12px 28px;
   background: var(--primary);
   color: white;
   border: none;
-  border-radius: 20px;
+  border-radius: var(--radius-md);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -587,11 +545,11 @@ body {
 }
 
 .btn-secondary-custom {
-  padding: 10px 24px;
+  padding: 12px 24px;
   background: rgba(15, 23, 42, 0.06);
   color: var(--text-main);
   text-decoration: none;
-  border-radius: 20px;
+  border-radius: var(--radius-md);
   font-size: 14px;
   font-weight: 600;
   transition: var(--transition);
@@ -601,13 +559,29 @@ body {
   background: rgba(15, 23, 42, 0.12);
 }
 
-.text-center { text-align: center; }
+/* Alerts */
+.alert-danger-custom {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: var(--danger);
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
-@media (max-width: 768px) {
+@media (max-width: 902px) {
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+  .card-form-grid {
+    grid-template-columns: 1fr;
+  }
   .nav-center { display: none; }
-  .form-grid { grid-template-columns: 1fr; }
-  .glass-card { padding: 24px 18px; }
-  .dashboard-shell { padding: 20px 12px; }
 }
 </style>
 </head>
@@ -617,44 +591,23 @@ body {
 <nav class="navbar">
   <div class="nav-container">
     
-    <!-- LEFT: Mobile Menu Button & EcoScrap Logo -->
     <div class="nav-left">
-      <button class="nav-toggle-btn" id="drawerToggle" aria-label="Toggle menu">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
-      </button>
-
       <a href="../dashboard.php" class="logo">
         <span class="logo-mark"></span>
         EcoScrap
       </a>
     </div>
 
-    <!-- CENTER: Section Header -->
     <div class="nav-center">
       Edit Profile
     </div>
 
-    <!-- RIGHT: Back Button, Notifications, Settings, User Dropdown -->
     <div class="nav-right">
-      
-      <!-- Back to Profile Link Button -->
       <a href="profile.php" class="nav-back-btn" title="View Profile">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
         <span>View Profile</span>
       </a>
 
-      <!-- Notification Icon -->
-      <a href="../notifications.php" class="nav-icon-btn" title="Notifications">
-        <span class="notification-dot"></span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-      </a>
-
-      <!-- Settings Icon -->
-      <a href="../settings.php" class="nav-icon-btn" title="Settings">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-      </a>
-
-      <!-- User Profile Dropdown -->
       <div class="dropdown">
         <button class="user-dropdown-btn" id="userMenuBtn">
           <img src="<?= $image ?>" alt="Avatar" class="nav-avatar-sm">
@@ -663,22 +616,11 @@ body {
         </button>
 
         <div class="dropdown-menu" id="userDropdown">
-          <a href="profile.php" class="dropdown-item">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-            My Profile
-          </a>
-          <a href="update_profile.php" class="dropdown-item">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-            Edit Profile
-          </a>
+          <a href="profile.php" class="dropdown-item">My Profile</a>
           <div class="dropdown-divider"></div>
-          <a href="../logout.php" class="dropdown-item danger">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-            Logout
-          </a>
+          <a href="../logout.php" class="dropdown-item">Logout</a>
         </div>
       </div>
-
     </div>
 
   </div>
@@ -686,24 +628,30 @@ body {
 
 <div class="dashboard-shell">
 
-  <div class="glass-card mouse-glow">
-    
-    <div class="text-center" style="margin-bottom: 24px;">
-      <h2 style="font-size: 22px; font-weight: 700; color: var(--text-main);">Update Account Details</h2>
-      <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Keep your profile information accurate and up to date.</p>
+  <!-- Header Title -->
+  <div class="page-header">
+    <h1 class="page-title">Account Settings</h1>
+    <p class="page-subtitle">Update your personal details and public profile presence.</p>
+  </div>
+
+  <?php if ($error != ""): ?>
+    <div class="alert-danger-custom">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+      <span><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></span>
     </div>
+  <?php endif; ?>
 
-    <?php if ($error != ""): ?>
-      <div class="alert-danger-custom">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-        <span><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></span>
-      </div>
-    <?php endif; ?>
+  <form method="POST" enctype="multipart/form-data">
+    
+    <!-- Outer Cards Grid Layout -->
+    <div class="profile-grid">
 
-    <form method="POST" enctype="multipart/form-data">
+      <!-- LEFT COLUMN CARD: Avatar & Media Upload -->
+      <div class="grid-card avatar-card">
+        <div class="grid-card-header" style="justify-content: center; border: none; padding-bottom: 0; margin-bottom: 12px;">
+          <span class="meta-badge">Profile Picture</span>
+        </div>
 
-      <!-- Profile Image Upload Area -->
-      <div class="text-center mb-4">
         <div class="avatar-upload-wrapper">
           <div class="avatar-frame">
             <img src="<?= $image ?>" id="profilePreview" alt="Profile Picture">
@@ -711,69 +659,106 @@ body {
         </div>
 
         <label for="profile_image_input" class="file-input-trigger">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-          Change Photo
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          Upload New Image
         </label>
         <input type="file" id="profile_image_input" name="profile_image" class="hidden-file-input" accept="image/*" onchange="previewImage(this)">
+
+        <div class="user-meta-info">
+          <p style="font-size: 13px; font-weight: 600; color: var(--text-main);"><?= htmlspecialchars($user['name'] ?? 'User', ENT_QUOTES, 'UTF-8') ?></p>
+          <p style="font-size: 12px; color: var(--text-muted);"><?= htmlspecialchars($user['email'] ?? '', ENT_QUOTES, 'UTF-8') ?></p>
+        </div>
       </div>
 
-      <div class="form-grid">
+      <!-- RIGHT COLUMN CARDS STACK: Information Cards -->
+      <div class="form-cards-stack">
 
-        <div>
-          <label class="field-label">Full Name</label>
-          <input type="text" name="name" class="field-input" value="<?= htmlspecialchars($user['name'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
+        <!-- CARD 1: Personal Details -->
+        <div class="grid-card">
+          <div class="grid-card-header">
+            <div class="card-header-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            </div>
+            <div>
+              <h2 class="card-title">Personal Information</h2>
+              <p class="card-subtitle">Basic details associated with your EcoScrap account</p>
+            </div>
+          </div>
+
+          <div class="card-form-grid">
+            <div>
+              <label class="field-label">Full Name</label>
+              <input type="text" name="name" class="field-input" value="<?= htmlspecialchars($user['name'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
+            </div>
+
+            <div>
+              <label class="field-label">Email Address (Read-only)</label>
+              <input type="email" class="field-input" value="<?= htmlspecialchars($user['email'] ?? '', ENT_QUOTES, 'UTF-8') ?>" readonly>
+            </div>
+
+            <div class="full-width">
+              <label class="field-label">Phone Number</label>
+              <input type="text" name="phone" class="field-input" value="<?= htmlspecialchars($user['phone'] ?? '', ENT_QUOTES, 'UTF-8') ?>" placeholder="10-digit number" required>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label class="field-label">Email Address (Read-only)</label>
-          <input type="email" class="field-input" value="<?= htmlspecialchars($user['email'] ?? '', ENT_QUOTES, 'UTF-8') ?>" readonly>
+        <!-- CARD 2: Location & Address -->
+        <div class="grid-card">
+          <div class="grid-card-header">
+            <div class="card-header-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            </div>
+            <div>
+              <h2 class="card-title">Address & Location</h2>
+              <p class="card-subtitle">Manage pickup address and regional location info</p>
+            </div>
+          </div>
+
+          <div class="card-form-grid">
+            <div class="full-width">
+              <label class="field-label">Residential Address</label>
+              <textarea name="address" class="field-textarea" rows="3" required><?= htmlspecialchars($user['address'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
+            </div>
+
+            <div>
+              <label class="field-label">Place</label>
+              <input type="text" name="place" class="field-input" value="<?= htmlspecialchars($user['place'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
+            </div>
+
+            <div>
+              <label class="field-label">District</label>
+              <input type="text" name="district" class="field-input" value="<?= htmlspecialchars($user['district'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
+            </div>
+
+            <div>
+              <label class="field-label">State</label>
+              <input type="text" name="state" class="field-input" value="<?= htmlspecialchars($user['state'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
+            </div>
+
+            <div>
+              <label class="field-label">Pincode</label>
+              <input type="text" name="pincode" class="field-input" value="<?= htmlspecialchars($user['pincode'] ?? '', ENT_QUOTES, 'UTF-8') ?>" placeholder="6-digit pincode" required>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label class="field-label">Phone Number</label>
-          <input type="text" name="phone" class="field-input" value="<?= htmlspecialchars($user['phone'] ?? '', ENT_QUOTES, 'UTF-8') ?>" placeholder="10-digit number" required>
-        </div>
-
-        <div>
-          <label class="field-label">Pincode</label>
-          <input type="text" name="pincode" class="field-input" value="<?= htmlspecialchars($user['pincode'] ?? '', ENT_QUOTES, 'UTF-8') ?>" placeholder="6-digit pincode" required>
-        </div>
-
-        <div>
-          <label class="field-label">Place</label>
-          <input type="text" name="place" class="field-input" value="<?= htmlspecialchars($user['place'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
-        </div>
-
-        <div>
-          <label class="field-label">District</label>
-          <input type="text" name="district" class="field-input" value="<?= htmlspecialchars($user['district'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
-        </div>
-
-        <div class="full-width">
-          <label class="field-label">State</label>
-          <input type="text" name="state" class="field-input" value="<?= htmlspecialchars($user['state'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
-        </div>
-
-        <div class="full-width">
-          <label class="field-label">Residential Address</label>
-          <textarea name="address" class="field-textarea" rows="3" required><?= htmlspecialchars($user['address'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
+        <!-- CARD 3: Actions Bar -->
+        <div class="grid-card actions-card">
+          <a href="profile.php" class="btn-secondary-custom">Cancel</a>
+          <button type="submit" class="btn-primary-custom">Save Changes</button>
         </div>
 
       </div>
 
-      <!-- Action Buttons -->
-      <div class="form-actions">
-        <button type="submit" class="btn-primary-custom">Update Profile</button>
-        <a href="profile.php" class="btn-secondary-custom">Cancel</a>
-      </div>
+    </div>
 
-    </form>
+  </form>
 
-  </div>
 </div>
 
 <script>
-// User Dropdown Controller
+// User Dropdown Toggle
 const userMenuBtn = document.getElementById('userMenuBtn');
 const userDropdown = document.getElementById('userDropdown');
 
@@ -786,16 +771,7 @@ document.addEventListener('click', () => {
   userDropdown.classList.remove('show');
 });
 
-// Mouse Glow Effect Controller
-document.querySelectorAll('.mouse-glow').forEach(element => {
-  element.addEventListener('mousemove', e => {
-    const rect = element.getBoundingClientRect();
-    element.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
-    element.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
-  });
-});
-
-// Image Live Preview
+// Profile Image Live Preview
 function previewImage(input) {
   if (input.files && input.files[0]) {
     const reader = new FileReader();
