@@ -47,12 +47,15 @@ if ($stmt_col) {
 ---------------------------------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
-    // CSRF Check
+    // Strict CSRF Validation
     $posted_token = $_POST['csrf_token'] ?? '';
-    if (!empty($_SESSION['csrf_token']) && !hash_equals($_SESSION['csrf_token'], $posted_token)) {
+    $token_valid = !empty($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $posted_token);
+
+    if (!$token_valid) {
         if (function_exists('verifyCsrfToken')) {
             try {
                 verifyCsrfToken();
+                $token_valid = true;
             } catch (Exception $e) {
                 $message = "Session token expired. Please refresh the page and try again.";
             }
@@ -61,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
         }
     }
 
-    if (empty($message)) {
+    if ($token_valid && empty($message)) {
         $activity_id = (int)$_POST['activity_id'];
         $weight      = (float)$_POST['scrap_weight'];
         $amount      = (float)$_POST['amount'];
@@ -74,7 +77,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
             $conn->begin_transaction();
 
-            // Updated query matching exact database columns: qr_status & completed_at
             $sql = "UPDATE activity
                     SET scrap_weight = ?,
                         amount = ?,
@@ -134,17 +136,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
             --bg-color: #F8FAFC;
             --surface-card: #FFFFFF;
             --border-color: #E2E8F0;
+
             --primary: #10B981;
             --primary-hover: #059669;
             --secondary: #0EA5E9;
+
             --success: #22C55E;
             --error: #EF4444;
             --warning: #F59E0B;
+
             --text-main: #0F172A;
             --text-muted: #64748B;
         }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
 
         body {
             background-color: var(--bg-color);
@@ -152,15 +162,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
             min-height: 100vh;
             display: flex;
             flex-direction: column;
-            background-image: 
+            background-image:
                 radial-gradient(circle at 10% 20%, rgba(14, 165, 233, 0.04) 0%, transparent 40%),
                 radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 40%);
         }
 
         .topbar {
             height: 70px;
-            background: rgba(255, 255, 255, 0.85);
+            background: rgba(255, 255, 255, 0.88);
             backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
@@ -174,50 +185,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
         .brand-header {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text-main);
+            min-width: 0;
+        }
+
+        .brand-logo {
+            width: 42px;
+            height: 42px;
+            object-fit: contain;
+            display: block;
+            flex-shrink: 0;
+        }
+
+        .brand-name {
             font-size: 20px;
             font-weight: 800;
+            letter-spacing: -0.5px;
             color: var(--text-main);
-            text-decoration: none;
         }
 
-        .brand-badge {
-            width: 36px; height: 36px;
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--primary);
-            border-radius: 10px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 20px;
+        .user-profile {
+            display: flex;
+            align-items: center;
+            gap: 16px;
         }
-
-        .user-profile { display: flex; align-items: center; gap: 16px; }
 
         .icon-btn {
-            width: 40px; height: 40px;
+            width: 40px;
+            height: 40px;
             border-radius: 10px;
             border: 1px solid var(--border-color);
-            background: #fff;
-            display: flex; align-items: center; justify-content: center;
+            background: #FFFFFF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             color: var(--text-muted);
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s ease;
             text-decoration: none;
         }
 
-        .icon-btn:hover { background: #f8fafc; }
+        .icon-btn:hover {
+            background: #F8FAFC;
+            color: var(--primary);
+            border-color: rgba(16, 185, 129, 0.35);
+            transform: translateY(-1px);
+        }
 
         .avatar-pill {
-            display: flex; align-items: center; gap: 10px;
-            background: #fff; padding: 6px 14px 6px 8px;
-            border-radius: 30px; border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #FFFFFF;
+            padding: 6px 14px 6px 8px;
+            border-radius: 30px;
+            border: 1px solid var(--border-color);
+            transition: border-color 0.2s ease;
+        }
+
+        .avatar-pill:hover {
+            border-color: rgba(16, 185, 129, 0.35);
         }
 
         .avatar {
-            width: 28px; height: 28px;
-            background: var(--secondary); color: #fff;
-            border-radius: 50%; display: flex;
-            align-items: center; justify-content: center;
-            font-size: 13px; font-weight: 700;
+            width: 28px;
+            height: 28px;
+            background: var(--secondary);
+            color: #FFFFFF;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
         }
 
         .content-area {
@@ -228,9 +270,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
             flex: 1;
         }
 
-        .page-header { text-align: center; margin-bottom: 28px; }
-        .page-header h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
-        .page-header p { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+        .page-header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .page-header h1 {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .page-header p {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-top: 4px;
+        }
 
         .scanner-card {
             background: var(--surface-card);
@@ -242,27 +297,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
         }
 
         .camera-viewport {
-            width: 100%; max-width: 400px; height: 320px;
-            margin: 0 auto; border-radius: 16px;
-            overflow: hidden; position: relative;
-            background: #090d16;
-            display: flex; align-items: center; justify-content: center;
+            width: 100%;
+            max-width: 400px;
+            height: 320px;
+            margin: 0 auto;
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+            background: #090D16;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             border: 2px solid var(--border-color);
         }
 
-        #reader { width: 100% !important; height: 100% !important; border: none !important; }
-        #reader video { object-fit: cover !important; width: 100% !important; height: 100% !important; }
+        #reader {
+            width: 100% !important;
+            height: 100% !important;
+            border: none !important;
+        }
+
+        #reader video {
+            object-fit: cover !important;
+            width: 100% !important;
+            height: 100% !important;
+        }
 
         .scan-overlay {
-            position: absolute; top: 50%; left: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
             transform: translate(-50%, -50%);
-            width: 200px; height: 200px;
-            pointer-events: none; z-index: 10;
+            width: 200px;
+            height: 200px;
+            pointer-events: none;
+            z-index: 10;
         }
 
         .corner {
-            position: absolute; width: 24px; height: 24px;
-            border-color: var(--primary); border-style: solid;
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border-color: var(--primary);
+            border-style: solid;
             filter: drop-shadow(0 0 6px var(--primary));
         }
 
@@ -272,7 +349,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
         .bottom-right { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-bottom-right-radius: 8px; }
 
         .scan-line {
-            width: 100%; height: 2px;
+            width: 100%;
+            height: 2px;
             background: linear-gradient(90deg, transparent, var(--primary), transparent);
             position: absolute;
             animation: scanAnim 2s infinite ease-in-out;
@@ -284,39 +362,110 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
             100% { top: 0%; opacity: 0.2; }
         }
 
-        .helper-text { text-align: center; font-size: 13px; color: var(--text-muted); margin-top: 14px; font-weight: 500; }
+        .helper-text {
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 14px;
+            font-weight: 500;
+        }
 
         .status-card {
-            margin-top: 20px; padding: 16px; border-radius: 14px;
-            background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(10px);
-            border: 1px solid var(--border-color); display: flex;
-            align-items: center; justify-content: center; gap: 10px;
-            font-weight: 600; font-size: 14px;
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 14px;
         }
 
-        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warning); box-shadow: 0 0 8px var(--warning); }
-        .status-card.success { background: rgba(34, 197, 94, 0.08); border-color: rgba(34, 197, 94, 0.3); color: #15803D; }
-        .status-card.success .status-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
-        .status-card.error { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.3); color: #B91C1C; }
-        .status-card.error .status-dot { background: var(--error); box-shadow: 0 0 8px var(--error); }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--warning);
+            box-shadow: 0 0 8px var(--warning);
+        }
 
-        .action-grid { display: flex; gap: 12px; margin-top: 20px; }
+        .status-card.success {
+            background: rgba(34, 197, 94, 0.08);
+            border-color: rgba(34, 197, 94, 0.3);
+            color: #15803D;
+        }
+
+        .status-card.success .status-dot {
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        .status-card.error {
+            background: rgba(239, 68, 68, 0.08);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #B91C1C;
+        }
+
+        .status-card.error .status-dot {
+            background: var(--error);
+            box-shadow: 0 0 8px var(--error);
+        }
+
+        .action-grid {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
 
         .btn {
-            flex: 1; padding: 12px 18px; border-radius: 10px; font-weight: 600; font-size: 14px;
-            border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-            gap: 8px; transition: all 0.2s ease; text-decoration: none;
+            flex: 1;
+            padding: 12px 18px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            border: none;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+            text-decoration: none;
         }
 
-        .btn-primary { background: var(--primary); color: #fff; }
-        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-primary {
+            background: var(--primary);
+            color: #FFFFFF;
+        }
 
-        .btn-secondary { background: #fff; border: 1px solid var(--border-color); color: var(--text-main); }
-        .btn-secondary:hover { background: #F1F5F9; }
+        .btn-primary:hover {
+            background: var(--primary-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(16, 185, 129, 0.2);
+        }
+
+        .btn-secondary {
+            background: #FFFFFF;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+
+        .btn-secondary:hover {
+            background: #F1F5F9;
+            transform: translateY(-1px);
+        }
 
         .customer-card {
-            background: #fff; border: 1px solid var(--border-color); border-radius: 20px;
-            padding: 28px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+            background: #FFFFFF;
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 28px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
             animation: fadeIn 0.3s ease-out forwards;
         }
 
@@ -325,22 +474,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
             to { opacity: 1; transform: translateY(0); }
         }
 
-        .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 20px 0; }
-        .info-item { background: #F8FAFC; padding: 14px; border-radius: 12px; border: 1px solid var(--border-color); }
-        .info-label { font-size: 12px; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.4px; margin-bottom: 4px; }
-        .info-value { font-size: 15px; font-weight: 600; color: var(--text-main); }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin: 20px 0;
+        }
+
+        .info-item {
+            background: #F8FAFC;
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .info-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: var(--text-muted);
+            letter-spacing: 0.4px;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
 
         .form-control {
-            width: 100%; padding: 10px 14px; font-size: 14px; border: 1px solid var(--border-color);
-            border-radius: 8px; margin-top: 4px;
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-top: 4px;
+            background: #FFFFFF;
+            color: var(--text-main);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
-        .form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+        }
 
         @media (max-width: 600px) {
-            .topbar { padding: 0 16px; }
+            .topbar { height: 64px; padding: 0 16px; }
+            .brand-logo { width: 36px; height: 36px; }
+            .brand-name { font-size: 18px; }
+            .user-profile { gap: 8px; }
+            .avatar-pill { padding-right: 8px; }
+            .avatar-pill span { display: none; }
+            .icon-btn { width: 36px; height: 36px; }
             .content-area { padding: 20px 16px; }
+            .page-header h1 { font-size: 23px; }
+            .scanner-card, .customer-card { padding: 20px; border-radius: 16px; }
+            .camera-viewport { height: 280px; }
+            .scan-overlay { width: 180px; height: 180px; }
             .info-grid { grid-template-columns: 1fr; }
             .info-item[style*="span 2"] { grid-column: span 1 !important; }
+            .action-grid { flex-direction: column; }
+            .btn { width: 100%; }
         }
     </style>
 </head>
@@ -350,18 +547,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
     <!-- Header Topbar -->
     <header class="topbar">
         <a href="dashboard.php" class="brand-header">
-            <div class="brand-badge"><i class="ri-leaf-fill"></i></div>
-            <span>EcoScrap</span>
+            <img src="../assets/logo/ecoscrap-logo.png" alt="EcoScrap" class="brand-logo">
+            <span class="brand-name">EcoScrap</span>
         </a>
 
         <div class="user-profile">
             <a href="dashboard.php" class="icon-btn" title="Back to Dashboard">
                 <i class="ri-dashboard-line"></i>
             </a>
+
             <div class="avatar-pill">
-                <div class="avatar"><?= strtoupper(substr($collector_name, 0, 1)); ?></div>
-                <span style="font-size: 14px; font-weight: 600;"><?= htmlspecialchars($collector_name); ?></span>
+                <div class="avatar">
+                    <?= strtoupper(substr($collector_name, 0, 1)); ?>
+                </div>
+                <span style="font-size: 14px; font-weight: 600;">
+                    <?= htmlspecialchars($collector_name); ?>
+                </span>
             </div>
+
             <a href="../logout.php" class="icon-btn" title="Logout">
                 <i class="ri-logout-box-r-line"></i>
             </a>
@@ -416,9 +619,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                 let html5QrCode = null;
 
                 async function stopScannerIfScanning() {
-                    if (html5QrCode && html5QrCode.isScanning) {
+                    if (html5QrCode) {
                         try {
-                            await html5QrCode.stop();
+                            if (html5QrCode.isScanning) {
+                                await html5QrCode.stop();
+                            }
+                            await html5QrCode.clear();
                         } catch (err) {
                             console.error("Error stopping scanner:", err);
                         }
@@ -459,9 +665,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
                 async function startScanner() {
                     await stopScannerIfScanning();
-                    if (!html5QrCode) {
-                        html5QrCode = new Html5Qrcode("reader");
-                    }
+                    html5QrCode = new Html5Qrcode("reader");
+                    
                     html5QrCode.start(
                         { facingMode: "environment" },
                         { fps: 10, qrbox: { width: 220, height: 220 } },
@@ -482,10 +687,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                     const file = input.files[0];
                     await stopScannerIfScanning();
 
-                    if (!html5QrCode) {
-                        html5QrCode = new Html5Qrcode("reader");
-                    }
-
+                    html5QrCode = new Html5Qrcode("reader");
                     html5QrCode.scanFile(file, true)
                         .then(decodedText => onScanSuccess(decodedText))
                         .catch(err => alert("Could not parse QR from uploaded image."));
@@ -572,11 +774,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                                 </div>
                                 <div class="info-item">
                                     <div class="info-label">Weight (kg)</div>
-                                    <input type="number" step="0.01" min="0.01" name="scrap_weight" class="form-control" value="<?= htmlspecialchars($row['scrap_weight'] ?? '0.00'); ?>" required>
+                                    <input type="number" step="0.01" min="0.01" name="scrap_weight" id="scrap_weight" class="form-control" value="<?= htmlspecialchars($row['scrap_weight'] ?? '0.00'); ?>" required>
                                 </div>
                                 <div class="info-item">
                                     <div class="info-label">Amount (₹)</div>
-                                    <input type="number" step="0.01" min="0.00" name="amount" class="form-control" value="<?= htmlspecialchars($row['amount'] ?? '0.00'); ?>" required>
+                                    <input type="number" step="0.01" min="0.00" name="amount" id="amount" class="form-control" value="<?= htmlspecialchars($row['amount'] ?? '0.00'); ?>" required>
                                 </div>
                                 <div class="info-item" style="grid-column: span 2;">
                                     <div class="info-label">Pickup Address</div>
