@@ -4,16 +4,12 @@ session_start();
 require_once "../includes/db.php";
 require_once "../includes/functions.php";
 
-if (
-    !isset($_SESSION['collector_id']) ||
-    $_SESSION['role'] != "Collector"
-) {
+if (!isset($_SESSION['collector_id']) || ($_SESSION['role'] ?? '') !== "Collector") {
     redirect("../login.php");
 }
 
-$collector_id = $_SESSION['collector_id'];
+$collector_id = (int) $_SESSION['collector_id'];
 
-// Get assigned pickup requests
 $sql = "
 SELECT
     activity.*,
@@ -31,39 +27,33 @@ $stmt->bind_param("i", $collector_id);
 $stmt->execute();
 $result = $stmt->get_result();
 
-// Store results in array for statistical highlights & loop reuse
 $requests = [];
 $total_weight = 0;
 
 if ($result && $result->num_rows > 0) {
     while ($row = $result->fetch_assoc()) {
         $requests[] = $row;
-        $total_weight += (float)($row['scrap_weight'] ?? 0);
+        $total_weight += (float) ($row['scrap_weight'] ?? 0);
     }
 }
 $total_count = count($requests);
-?>
 
+function e($value): string {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Assigned Pickups | EcoScrap Collector Hub</title>
 
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
-    <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    
-    <!-- Remix Icon -->
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
-
-    <!-- Design System CSS -->
     <link rel="stylesheet" href="../assets/css/style.css">
 
     <style>
@@ -92,7 +82,6 @@ $total_count = count($requests);
             padding-bottom: 90px;
         }
 
-        /* Ambient Background Blur */
         .ambient-blur {
             position: fixed;
             border-radius: 50%;
@@ -118,7 +107,6 @@ $total_count = count($requests);
             background: radial-gradient(circle, rgba(14, 165, 233, 0.2) 0%, transparent 70%);
         }
 
-        /* Top Navigation Header */
         .app-navbar {
             background: rgba(255, 255, 255, 0.85);
             backdrop-filter: blur(20px);
@@ -166,7 +154,6 @@ $total_count = count($requests);
             z-index: 1;
         }
 
-        /* Header Banner & Stats */
         .header-banner {
             background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
             border-radius: 24px;
@@ -202,7 +189,6 @@ $total_count = count($requests);
             margin: 0;
         }
 
-        /* Stats Badge Pills */
         .stat-pill {
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.12);
@@ -247,7 +233,6 @@ $total_count = count($requests);
             font-weight: 500;
         }
 
-        /* Search & Filter Bar */
         .filter-card {
             background: var(--eco-card-bg);
             backdrop-filter: blur(16px);
@@ -409,7 +394,6 @@ $total_count = count($requests);
             border-radius: 6px;
         }
 
-        /* Quick Direct Action Buttons */
         .quick-actions {
             display: flex;
             gap: 8px;
@@ -467,7 +451,23 @@ $total_count = count($requests);
             color: #ffffff;
         }
 
-        /* Empty State Styling */
+        .btn-reject-pickup {
+            width: 100%;
+            border: 1px solid #dc3545;
+            background: transparent;
+            color: #dc3545;
+            padding: 10px 16px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-reject-pickup:hover {
+            background: #dc3545;
+            color: #fff;
+        }
+
         .empty-alert {
             text-align: center;
             padding: 60px 24px;
@@ -491,7 +491,6 @@ $total_count = count($requests);
             margin: 0 auto 20px auto;
         }
 
-        /* Custom Modal Styling */
         .custom-modal-content {
             border-radius: 24px;
             border: none;
@@ -510,7 +509,6 @@ $total_count = count($requests);
             padding: 24px;
         }
 
-        /* Bottom Floating Bar for Mobile Workers */
         .mobile-bottom-nav {
             position: fixed;
             bottom: 0;
@@ -550,23 +548,23 @@ $total_count = count($requests);
             .workspace-container {
                 padding: 16px 12px;
             }
+
             .header-banner {
                 padding: 24px 20px;
                 border-radius: 20px;
             }
+
             .header-title {
                 font-size: 1.4rem;
             }
+
             .stat-pill {
                 padding: 10px 14px;
             }
         }
     </style>
 </head>
-
 <body>
-
-    <!-- Ambient background glows -->
     <div class="ambient-blur blur-1"></div>
     <div class="ambient-blur blur-2"></div>
 
@@ -577,10 +575,9 @@ $total_count = count($requests);
                 <span>EcoScrap</span>
                 <span class="brand-badge">Collector Hub</span>
             </a>
-            
+
             <div class="d-flex align-items-center gap-3">
                 <span class="badge bg-emerald-light text-emerald px-3 py-2 rounded-pill d-none d-sm-inline-flex align-items-center gap-2" style="background: rgba(16, 185, 129, 0.1); color: #059669; font-weight: 600;">
-<!-- ... existing code -->
                     <span class="spinner-grow spinner-grow-sm text-success" role="status" style="width: 8px; height: 8px;"></span>
                     Queue Active
                 </span>
@@ -592,8 +589,6 @@ $total_count = count($requests);
     </nav>
 
     <main class="workspace-container">
-
-        <!-- Page Header Banner -->
         <header class="header-banner">
             <div class="row align-items-center g-3">
                 <div class="col-lg-7">
@@ -604,20 +599,16 @@ $total_count = count($requests);
                     <div class="row g-2">
                         <div class="col-6">
                             <div class="stat-pill stat-pill-green">
-                                <div class="stat-icon-wrapper">
-                                    <i class="ri-truck-line"></i>
-                                </div>
+                                <div class="stat-icon-wrapper"><i class="ri-truck-line"></i></div>
                                 <div>
-                                    <div class="stat-val"><?= $total_count ?></div>
+                                    <div class="stat-val"><?= (int) $total_count ?></div>
                                     <div class="stat-lbl">Jobs Assigned</div>
                                 </div>
                             </div>
                         </div>
                         <div class="col-6">
                             <div class="stat-pill stat-pill-blue">
-                                <div class="stat-icon-wrapper">
-                                    <i class="ri-scales-3-line"></i>
-                                </div>
+                                <div class="stat-icon-wrapper"><i class="ri-scales-3-line"></i></div>
                                 <div>
                                     <div class="stat-val"><?= number_format($total_weight, 1) ?> <span style="font-size: 0.8rem;">KG</span></div>
                                     <div class="stat-lbl">Total Weight</div>
@@ -651,10 +642,8 @@ $total_count = count($requests);
 
         <div class="row g-4" id="requestsGrid">
             <?php if (!empty($requests)): ?>
-                <?php foreach ($requests as $row): 
-                    $scrapType = htmlspecialchars($row['scrap_type'] ?? 'General Scrap');
-                    
-                    // Assign icon dynamically based on scrap category
+                <?php foreach ($requests as $row):
+                    $scrapType = (string) ($row['scrap_type'] ?? 'General Scrap');
                     $scrapIcon = 'ri-recycle-line';
                     if (stripos($scrapType, 'paper') !== false) $scrapIcon = 'ri-newspaper-line';
                     elseif (stripos($scrapType, 'plastic') !== false) $scrapIcon = 'ri-cup-line';
@@ -662,123 +651,125 @@ $total_count = count($requests);
                     elseif (stripos($scrapType, 'electronic') !== false || stripos($scrapType, 'e-waste') !== false) $scrapIcon = 'ri-computer-line';
                     elseif (stripos($scrapType, 'glass') !== false) $scrapIcon = 'ri-goblet-line';
 
-                    $custName = htmlspecialchars($row['customer_name'] ?? 'N/A');
-                    $custPhone = htmlspecialchars($row['customer_phone'] ?? '');
-                    $address = htmlspecialchars($row['pickup_address'] ?? 'N/A');
-                    $weight = htmlspecialchars($row['scrap_weight'] ?? '0');
-                    $pickupDate = htmlspecialchars($row['preferred_pickup_date'] ?? 'Asap');
-                    $activityId = (int)$row['activity_id'];
+                    $custName = (string) ($row['customer_name'] ?? 'N/A');
+                    $custPhone = (string) ($row['customer_phone'] ?? '');
+                    $address = (string) ($row['pickup_address'] ?? 'N/A');
+                    $weight = (string) ($row['scrap_weight'] ?? '0');
+                    $pickupDate = (string) ($row['preferred_pickup_date'] ?? 'Asap');
+                    $activityId = (int) ($row['activity_id'] ?? 0);
+                    $searchData = strtolower($custName . ' ' . $custPhone . ' ' . $address . ' ' . $scrapType);
                 ?>
-                    <div class="col-md-6 col-lg-6 request-item" data-search="<?= strtolower($custName . ' ' . $custPhone . ' ' . $address . ' ' . $scrapType) ?>" data-category="<?= htmlspecialchars($scrapType) ?>">
+                    <div class="col-md-6 col-lg-6 request-item" data-search="<?= e($searchData) ?>" data-category="<?= e($scrapType) ?>">
                         <div class="pickup-card">
                             <div>
-                                <!-- Top Header -->
                                 <div class="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
                                     <span class="scrap-badge">
-                                        <i class="<?= $scrapIcon ?> text-success"></i>
-                                        <?= $scrapType ?>
+                                        <i class="<?= e($scrapIcon) ?> text-success"></i>
+                                        <?= e($scrapType) ?>
                                     </span>
                                     <span class="badge-assigned">
-                                        <i class="ri-time-line me-1"></i><?= htmlspecialchars($row['status']) ?>
+                                        <i class="ri-time-line me-1"></i><?= e($row['status'] ?? '') ?>
                                     </span>
                                 </div>
 
-                                <!-- Info Group -->
                                 <div class="info-row">
-                                    <div class="info-icon">
-                                        <i class="ri-user-3-line"></i>
-                                    </div>
+                                    <div class="info-icon"><i class="ri-user-3-line"></i></div>
                                     <div class="info-content">
                                         <span class="info-label">Customer Name</span>
-                                        <span class="info-value"><?= $custName ?></span>
+                                        <span class="info-value"><?= e($custName) ?></span>
                                     </div>
                                 </div>
 
                                 <div class="info-row">
-                                    <div class="info-icon">
-                                        <i class="ri-phone-line"></i>
-                                    </div>
+                                    <div class="info-icon"><i class="ri-phone-line"></i></div>
                                     <div class="info-content">
                                         <span class="info-label">Phone Contact</span>
-                                        <span class="info-value"><?= $custPhone ?: 'No phone provided' ?></span>
+                                        <span class="info-value"><?= $custPhone !== '' ? e($custPhone) : 'No phone provided' ?></span>
                                     </div>
                                 </div>
 
                                 <div class="info-row">
-                                    <div class="info-icon">
-                                        <i class="ri-map-pin-2-line"></i>
-                                    </div>
+                                    <div class="info-icon"><i class="ri-map-pin-2-line"></i></div>
                                     <div class="info-content">
                                         <span class="info-label">Pickup Location</span>
-                                        <span class="info-value"><?= $address ?></span>
+                                        <span class="info-value"><?= e($address) ?></span>
                                     </div>
                                 </div>
 
                                 <div class="row mt-3 pt-2 g-2">
                                     <div class="col-6">
                                         <div class="info-row">
-                                            <div class="info-icon">
-                                                <i class="ri-scales-3-line"></i>
-                                            </div>
+                                            <div class="info-icon"><i class="ri-scales-3-line"></i></div>
                                             <div class="info-content">
                                                 <span class="info-label">Est. Weight</span>
-                                                <span class="info-value"><span class="weight-chip"><?= $weight ?> KG</span></span>
+                                                <span class="info-value"><span class="weight-chip"><?= e($weight) ?> KG</span></span>
                                             </div>
                                         </div>
                                     </div>
                                     <div class="col-6">
                                         <div class="info-row">
-                                            <div class="info-icon">
-                                                <i class="ri-calendar-event-line"></i>
-                                            </div>
+                                            <div class="info-icon"><i class="ri-calendar-event-line"></i></div>
                                             <div class="info-content">
                                                 <span class="info-label">Preferred Date</span>
-                                                <span class="info-value"><?= $pickupDate ?></span>
+                                                <span class="info-value"><?= e($pickupDate) ?></span>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Quick Call & Map Action Toolbar -->
                                 <div class="quick-actions">
-                                    <?php if ($custPhone): ?>
-                                        <a href="tel:<?= $custPhone ?>" class="btn-action-icon">
+                                    <?php if ($custPhone !== ''): ?>
+                                        <a href="tel:<?= rawurlencode($custPhone) ?>" class="btn-action-icon">
                                             <i class="ri-phone-fill text-success"></i> Call Customer
                                         </a>
                                     <?php endif; ?>
-                                    <a href="https://www.google.com/maps/search/?api=1&query=<?= urlencode($address) ?>" target="_blank" class="btn-action-icon">
+                                    <a href="https://www.google.com/maps/search/?api=1&query=<?= urlencode($address) ?>" target="_blank" rel="noopener noreferrer" class="btn-action-icon">
                                         <i class="ri-direction-line text-primary"></i> Navigate Route
                                     </a>
                                 </div>
                             </div>
 
-                            <!-- Start Job Form Trigger Button -->
                             <form action="accept_pickup.php" method="post" id="form-pickup-<?= $activityId ?>" class="mt-3">
-                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
+                                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
                                 <input type="hidden" name="id" value="<?= $activityId ?>">
-                                <button type="button" class="btn-start-pickup" onclick="triggerStartModal('<?= $activityId ?>', '<?= addslashes($custName) ?>', '<?= addslashes($scrapType) ?>', '<?= $weight ?>')">
-                                    <i class="ri-play-circle-fill fs-5"></i> Start Pickup Job
+
+                                <button type="button"
+                                        class="btn-start-pickup"
+                                        data-activity-id="<?= $activityId ?>"
+                                        data-cust-name="<?= e($custName) ?>"
+                                        data-scrap-type="<?= e($scrapType) ?>"
+                                        data-weight="<?= e($weight) ?>">
+                                    <i class="ri-play-circle-fill fs-5"></i>
+                                    Start Pickup Job
+                                </button>
+                            </form>
+
+                            <form action="reject_pickup.php"
+                                  method="post"
+                                  class="mt-2"
+                                  onsubmit="return confirm('Are you sure you want to reject this pickup request?');">
+                                <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+                                <input type="hidden" name="id" value="<?= $activityId ?>">
+                                <button type="submit" class="btn-reject-pickup">
+                                    <i class="ri-close-circle-line fs-5"></i>
+                                    Reject Pickup
                                 </button>
                             </form>
                         </div>
                     </div>
                 <?php endforeach; ?>
             <?php else: ?>
-                <div class="col-12" id="noResultsContainer">
+                <div class="col-12">
                     <div class="empty-alert">
                         <div class="empty-icon-circle">
-                            <i class="ri-checkbox-circle-line"></i>
+                            <i class="ri-inbox-2-line"></i>
                         </div>
-                        <h4 class="fw-bold text-dark mb-2">Queue Completely Clear!</h4>
-                        <p class="text-muted mb-4 max-width-500 mx-auto">There are currently no assigned pickup requests waiting in your queue. Great job staying on top of your schedule!</p>
-                        <a href="dashboard.php" class="btn btn-emerald px-4 py-2 rounded-pill fw-bold text-white" style="background: var(--eco-primary);">
-                            <i class="ri-dashboard-line me-1"></i> Back to Dashboard
-                        </a>
+                        <h4 class="fw-bold mb-2">No Assigned Pickups</h4>
+                        <p class="mb-0">You currently have no pickup requests assigned to your queue.</p>
                     </div>
                 </div>
             <?php endif; ?>
         </div>
-
     </main>
 
     <div class="modal fade" id="confirmStartModal" tabindex="-1" aria-hidden="true">
@@ -792,7 +783,7 @@ $total_count = count($requests);
                 </div>
                 <div class="modal-body custom-modal-body">
                     <p class="text-secondary mb-3">You are about to initiate this pickup route. Please confirm the job details below:</p>
-                    
+
                     <div class="p-3 bg-light rounded-3 mb-4">
                         <div class="d-flex justify-content-between mb-2">
                             <span class="text-muted small">Customer:</span>
@@ -819,7 +810,6 @@ $total_count = count($requests);
         </div>
     </div>
 
-    <!-- Mobile Bottom Navigation Bar -->
     <div class="mobile-bottom-nav d-md-none">
         <a href="dashboard.php" class="nav-item-btn">
             <i class="ri-dashboard-3-line"></i>
@@ -839,32 +829,28 @@ $total_count = count($requests);
         </a>
     </div>
 
-    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-
     <script>
         let currentActiveFormId = null;
         let selectedCategory = 'all';
 
-        // Custom modal confirmation trigger
-        function triggerStartModal(activityId, custName, scrapType, weight) {
-            currentActiveFormId = 'form-pickup-' + activityId;
-            document.getElementById('modalCustName').textContent = custName;
-            document.getElementById('modalScrapType').textContent = scrapType;
-            document.getElementById('modalWeight').textContent = weight + ' KG';
-            
-            const modal = new bootstrap.Modal(document.getElementById('confirmStartModal'));
-            modal.show();
-        }
+        document.querySelectorAll('.btn-start-pickup').forEach(btn => {
+            btn.addEventListener('click', () => {
+                currentActiveFormId = 'form-pickup-' + btn.dataset.activityId;
+                document.getElementById('modalCustName').textContent = btn.dataset.custName || '-';
+                document.getElementById('modalScrapType').textContent = btn.dataset.scrapType || '-';
+                document.getElementById('modalWeight').textContent = (btn.dataset.weight || '0') + ' KG';
+                const modal = new bootstrap.Modal(document.getElementById('confirmStartModal'));
+                modal.show();
+            });
+        });
 
-        // Attach event handler to modal submit button
         document.getElementById('confirmModalSubmitBtn').addEventListener('click', function() {
             if (currentActiveFormId) {
                 document.getElementById(currentActiveFormId).submit();
             }
         });
 
-        // Client-side text search
         function filterCards() {
             const query = document.getElementById('searchInput').value.toLowerCase().trim();
             const cards = document.querySelectorAll('.request-item');
@@ -872,30 +858,18 @@ $total_count = count($requests);
             cards.forEach(card => {
                 const searchData = card.getAttribute('data-search') || '';
                 const categoryData = card.getAttribute('data-category') || '';
-
                 const matchesSearch = searchData.includes(query);
                 const matchesCategory = (selectedCategory === 'all') || categoryData.toLowerCase().includes(selectedCategory.toLowerCase());
-
-                if (matchesSearch && matchesCategory) {
-                    card.style.display = 'block';
-                } else {
-                    card.style.display = 'none';
-                }
+                card.style.display = (matchesSearch && matchesCategory) ? 'block' : 'none';
             });
         }
 
-        // Category filter selection
         function setCategoryFilter(category, btnElement) {
             selectedCategory = category;
-            
-            // Highlight active button pill
-            const buttons = document.querySelectorAll('#categoryFilters button');
-            buttons.forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('#categoryFilters button').forEach(b => b.classList.remove('active'));
             btnElement.classList.add('active');
-
             filterCards();
         }
     </script>
 </body>
-
 </html>

@@ -1,25 +1,19 @@
 <?php
 session_start();
 
-// 1. Database Connection
-$host = "localhost";
-$user = "root";
-$pass = "";
-$db   = "ecoscrap_db";
+require_once "../includes/db.php";
+require_once "../includes/functions.php";
 
-$conn = new mysqli($host, $user, $pass, $db);
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
-
-// 2. Auth Check (Redirect if not logged in)
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
 }
 $user_id = (int) $_SESSION['user_id'];
 
-// Fetch Logged-in User Info
+function e($value): string {
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+}
+
 $user_stmt = $conn->prepare("SELECT name FROM user WHERE user_id = ?");
 $user_stmt->bind_param("i", $user_id);
 $user_stmt->execute();
@@ -27,18 +21,19 @@ $user_res = $user_stmt->get_result()->fetch_assoc();
 $current_user_name = $user_res['name'] ?? 'User';
 $user_stmt->close();
 
-// 3. Fetch Requests + Collector Info
-$sql = "SELECT 
-            a.*, 
-            c.name AS collector_name, 
-            c.phone AS collector_phone,
-            c.email AS collector_email,
-            c.vehicle_no AS collector_vehicle
-        FROM activity a
-        LEFT JOIN scrapcollector c 
-            ON a.collector_id = c.collector_id
-        WHERE a.user_id = ?
-        ORDER BY a.request_date DESC";
+$sql = "
+    SELECT 
+        a.*, 
+        c.name AS collector_name, 
+        c.phone AS collector_phone,
+        c.email AS collector_email,
+        c.vehicle_no AS collector_vehicle
+    FROM activity a
+    LEFT JOIN scrapcollector c 
+        ON a.collector_id = c.collector_id
+    WHERE a.user_id = ?
+    ORDER BY a.request_date DESC
+";
 
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $user_id);
@@ -46,27 +41,26 @@ $stmt->execute();
 $result = $stmt->get_result();
 
 $rows = [];
-$pending_count     = 0;
-$approved_count    = 0;
-$assigned_count    = 0;
+$pending_count = 0;
+$approved_count = 0;
+$assigned_count = 0;
 $in_progress_count = 0;
-$completed_count   = 0;
+$completed_count = 0;
 
 if ($result && $result->num_rows > 0) {
     while ($row = $result->fetch_assoc()) {
         $rows[] = $row;
         $st = strtolower(trim($row['status'] ?? 'pending'));
 
-        if ($st === 'pending')                 $pending_count++;
-        elseif ($st === 'approved')            $approved_count++;
-        elseif ($st === 'assigned')            $assigned_count++;
-        elseif ($st === 'in progress')         $in_progress_count++;
+        if ($st === 'pending') $pending_count++;
+        elseif ($st === 'approved') $approved_count++;
+        elseif ($st === 'assigned') $assigned_count++;
+        elseif ($st === 'in progress') $in_progress_count++;
         elseif ($st === 'verified' || $st === 'completed') $completed_count++;
     }
 }
 $stmt->close();
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -74,157 +68,266 @@ $stmt->close();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Pickup Requests | EcoScrap</title>
 
-    <!-- Google Fonts & Remix Icons -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
-
-    <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
     <style>
         :root {
-            --primary: #10B981;
-            --secondary: #047857;
-            --accent: #0EA5E9;
-            --bg-color: #F8FAFC;
-            --surface: rgba(255, 255, 255, 0.85);
-            --surface-border: rgba(15, 23, 42, 0.08);
-            --text-main: #0F172A;
-            --text-muted: #64748B;
-            --font-main: 'Inter', sans-serif;
-            --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            --eco-primary: #10b981;
+            --eco-primary-hover: #059669;
+            --eco-primary-light: rgba(16, 185, 129, 0.12);
+            --eco-secondary: #0ea5e9;
+            --eco-dark: #0f172a;
+            --eco-card-bg: rgba(255, 255, 255, 0.88);
+            --eco-card-border: rgba(226, 232, 240, 0.8);
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --shadow: 0 12px 32px -4px rgba(15, 23, 42, 0.06);
+            --shadow-hover: 0 20px 40px -4px rgba(16, 185, 129, 0.12);
         }
 
         body {
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            font-family: var(--font-main);
             min-height: 100vh;
-            padding-bottom: 50px;
+            background: #f8fafc;
+            font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+            color: var(--text-primary);
+            padding-bottom: 90px;
+            overflow-x: hidden;
         }
 
-        /* Navigation Header */
-        .header-bar {
-            background: var(--surface);
+        .ambient-blur {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(140px);
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.5;
+        }
+
+        .blur-1 {
+            width: 500px;
+            height: 500px;
+            top: -120px;
+            right: -120px;
+            background: radial-gradient(circle, rgba(16, 185, 129, 0.24) 0%, transparent 70%);
+        }
+
+        .blur-2 {
+            width: 450px;
+            height: 450px;
+            bottom: -70px;
+            left: -120px;
+            background: radial-gradient(circle, rgba(14, 165, 233, 0.20) 0%, transparent 70%);
+        }
+
+        .app-navbar {
+            background: rgba(255, 255, 255, 0.85);
             backdrop-filter: blur(20px);
-            border-bottom: 1px solid var(--surface-border);
-            padding: 16px 28px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(226, 232, 240, 0.8);
             position: sticky;
             top: 0;
             z-index: 1000;
         }
 
-        .brand-title {
-            font-size: 20px;
-            font-weight: 800;
-            color: var(--text-main);
+        .brand-logo {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
             text-decoration: none;
-        }
-
-        .nav-icon-btn {
-            position: relative;
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            font-size: 20px;
-            cursor: pointer;
-        }
-
-        .nav-icon-btn .badge-dot {
-            position: absolute;
-            top: 2px;
-            right: 2px;
-            width: 8px;
-            height: 8px;
-            background: var(--primary);
-            border-radius: 50%;
-        }
-
-        /* Metric Cards */
-        .metric-card {
-            background: var(--surface);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--surface-border);
-            border-radius: 14px;
-            padding: 16px 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.02);
-        }
-
-        .metric-label {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-muted);
-        }
-
-        .metric-value {
-            font-size: 24px;
             font-weight: 800;
-            color: var(--text-main);
+            font-size: 1.25rem;
+            color: var(--eco-dark);
         }
 
-        /* Search & Filter Section */
-        .filter-panel {
-            background: var(--surface);
-            border: 1px solid var(--surface-border);
-            border-radius: 14px;
-            padding: 14px;
-            margin: 24px 0;
+        .brand-logo img {
+            height: 36px;
+            width: auto;
+            object-fit: contain;
+            border-radius: 6px;
+        }
+
+        .brand-badge {
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 4px 10px;
+            border-radius: 30px;
+            background: var(--eco-primary-light);
+            color: var(--eco-primary);
+        }
+
+        .workspace-container {
+            width: 100%;
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 28px 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header-banner {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            border-radius: 24px;
+            padding: 32px 28px;
+            color: #ffffff;
+            margin-bottom: 28px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.2);
+        }
+
+        .header-banner::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 320px;
+            height: 100%;
+            background: radial-gradient(circle at 100% 0%, rgba(16, 185, 129, 0.30) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .header-title {
+            font-size: 1.8rem;
+            font-weight: 800;
+            margin-bottom: 6px;
+            letter-spacing: -0.02em;
+        }
+
+        .header-subtitle {
+            font-size: 0.95rem;
+            color: #94a3b8;
+            margin: 0;
+        }
+
+        .stat-pill {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 14px 20px;
             display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
+            align-items: center;
+            gap: 14px;
         }
 
-        .filter-input, .filter-select {
-            background: #ffffff;
-            border: 1px solid var(--surface-border);
-            border-radius: 8px;
-            padding: 10px 14px;
-            font-size: 14px;
-            color: var(--text-main);
-            outline: none;
+        .stat-icon-wrapper {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
         }
 
-        .filter-input { flex: 1; min-width: 200px; }
-
-        .btn-filter-search {
-            background: var(--primary);
-            color: #fff;
-            border: none;
-            border-radius: 8px;
-            padding: 10px 20px;
-            font-weight: 600;
-            transition: var(--transition);
+        .stat-pill-green .stat-icon-wrapper {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
         }
 
-        .btn-filter-search:hover { background: var(--secondary); }
+        .stat-pill-blue .stat-icon-wrapper {
+            background: rgba(14, 165, 233, 0.2);
+            color: #38bdf8;
+        }
 
-        /* Card Wrapper */
-        .card-wrapper {
-            background: var(--surface);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--surface-border);
+        .stat-val {
+            font-size: 1.25rem;
+            font-weight: 800;
+            line-height: 1.2;
+            color: #ffffff;
+        }
+
+        .stat-lbl {
+            font-size: 0.78rem;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+
+        .filter-card {
+            background: var(--eco-card-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--eco-card-border);
             border-radius: 18px;
+            padding: 16px 20px;
+            margin-bottom: 28px;
+            box-shadow: var(--shadow);
+        }
+
+        .search-box {
+            position: relative;
+        }
+
+        .search-box i {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 11px 16px 11px 44px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            background: #ffffff;
+            font-size: 0.92rem;
+            color: var(--text-primary);
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--eco-primary);
+            box-shadow: 0 0 0 4px var(--eco-primary-light);
+        }
+
+        .category-pill-btn {
+            border: 1px solid #e2e8f0;
+            background: #ffffff;
+            color: var(--text-secondary);
+            border-radius: 20px;
+            padding: 6px 16px;
+            font-size: 0.83rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .category-pill-btn:hover,
+        .category-pill-btn.active {
+            background: var(--eco-dark);
+            color: #ffffff;
+            border-color: var(--eco-dark);
+        }
+
+        .card-wrapper {
+            background: var(--eco-card-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--eco-card-border);
+            border-radius: 20px;
             padding: 24px;
             margin-bottom: 20px;
-            box-shadow: 0 6px 20px rgba(15, 23, 42, 0.03);
-            transition: var(--transition);
+            box-shadow: var(--shadow);
+            transition: all 0.25s ease;
         }
 
         .card-wrapper:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(15, 23, 42, 0.06);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-hover);
+            border-color: rgba(16, 185, 129, 0.35);
         }
 
-        /* Badges */
         .status-badge {
             font-size: 12px;
             font-weight: 700;
@@ -235,295 +338,320 @@ $stmt->close();
             gap: 6px;
         }
 
-        .badge-pending     { background: rgba(245, 158, 11, 0.12); color: #d97706; }
-        .badge-approved    { background: rgba(16, 185, 129, 0.12); color: #047857; }
-        .badge-assigned    { background: rgba(14, 165, 233, 0.12); color: #0284c7; }
+        .badge-pending { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+        .badge-approved { background: rgba(16, 185, 129, 0.12); color: #047857; }
+        .badge-assigned { background: rgba(14, 165, 233, 0.12); color: #0284c7; }
         .badge-in-progress { background: rgba(99, 102, 241, 0.12); color: #4f46e5; }
-        .badge-completed   { background: rgba(16, 185, 129, 0.20); color: #059669; }
+        .badge-completed { background: rgba(16, 185, 129, 0.20); color: #059669; }
 
-        /* Collector Box */
         .collector-box {
-            background: rgba(255, 255, 255, 0.7);
-            border: 1px solid var(--surface-border);
-            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid var(--eco-card-border);
+            border-radius: 14px;
             padding: 16px;
             margin: 16px 0;
         }
 
-        /* Buttons */
         .btn-custom-outline {
             background: #ffffff;
-            border: 1px solid var(--surface-border);
-            color: var(--text-main);
-            padding: 8px 16px;
-            border-radius: 8px;
+            border: 1px solid var(--eco-card-border);
+            color: var(--text-primary);
+            padding: 9px 16px;
+            border-radius: 10px;
             font-size: 13px;
             font-weight: 600;
             text-decoration: none;
-            transition: var(--transition);
+            transition: all 0.2s ease;
         }
 
         .btn-custom-outline:hover {
-            border-color: var(--primary);
-            color: var(--primary);
+            border-color: var(--eco-primary);
+            color: var(--eco-primary);
+            background: rgba(16, 185, 129, 0.05);
         }
 
         .btn-custom-primary {
-            background: var(--primary);
+            background: linear-gradient(135deg, var(--eco-primary) 0%, #059669 100%);
             color: #ffffff;
             border: none;
-            padding: 8px 16px;
-            border-radius: 8px;
+            padding: 9px 16px;
+            border-radius: 10px;
             font-size: 13px;
             font-weight: 600;
             text-decoration: none;
-            transition: var(--transition);
+            transition: all 0.2s ease;
         }
 
         .btn-custom-primary:hover {
-            background: var(--secondary);
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
             color: #ffffff;
+        }
+
+        .empty-state {
+            background: var(--eco-card-bg);
+            border: 1px dashed #cbd5e1;
+            border-radius: 22px;
+            padding: 60px 24px;
+            text-align: center;
+            box-shadow: var(--shadow);
+        }
+
+        .empty-icon {
+            width: 84px;
+            height: 84px;
+            border-radius: 50%;
+            margin: 0 auto 18px;
+            display: grid;
+            place-items: center;
+            background: var(--eco-primary-light);
+            color: var(--eco-primary);
+            font-size: 2.1rem;
+        }
+
+        @media (max-width: 768px) {
+            .workspace-container {
+                padding: 16px 12px;
+            }
+            .header-banner {
+                padding: 24px 20px;
+                border-radius: 20px;
+            }
+            .header-title {
+                font-size: 1.45rem;
+            }
         }
     </style>
 </head>
-
 <body>
+    <div class="ambient-blur blur-1"></div>
+    <div class="ambient-blur blur-2"></div>
 
-    <!-- Header Navigation Bar -->
-    <header class="header-bar">
-        <a href="dashboard.php" class="brand-title">
-            <i class="ri-leaf-line" style="color: var(--primary);"></i>
-            <span>EcoScrap</span>
-        </a>
-        <div class="d-flex align-items-center gap-3">
-            <span class="fw-semibold fs-6 d-none d-md-inline">My Pickup Requests</span>
-            <button class="nav-icon-btn" title="Notifications">
-                <i class="ri-notification-3-line"></i>
-                <span class="badge-dot"></span>
-            </button>
-            <div class="dropdown">
-                <button class="btn border-0 dropdown-toggle fw-bold text-dark p-0" data-bs-toggle="dropdown">
-                    <i class="ri-user-3-line me-1"></i> <?= htmlspecialchars($current_user_name); ?>
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item" href="profile.php">Profile</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-danger" href="logout.php">Logout</a></li>
-                </ul>
-            </div>
-        </div>
-    </header>
+    <nav class="app-navbar py-3">
+        <div class="container-fluid max-width-1140 px-4 d-flex align-items-center justify-content-between">
+            <a href="dashboard.php" class="brand-logo">
+                <img src="../assets/logo/ecoscrap-logo.png" alt="EcoScrap Logo">
+                <span>EcoScrap</span>
+                <span class="brand-badge">User Hub</span>
+            </a>
 
-    <div class="container my-4">
+            <div class="d-flex align-items-center gap-3">
+                <span class="badge bg-emerald-light text-emerald px-3 py-2 rounded-pill d-none d-sm-inline-flex align-items-center gap-2" style="background: rgba(16, 185, 129, 0.1); color: #059669; font-weight: 600;">
+                    <span class="spinner-grow spinner-grow-sm text-success" role="status" style="width: 8px; height: 8px;"></span>
+                    Live Tracking
+                </span>
 
-        <!-- Metrics Row -->
-        <div class="row g-3 mb-4">
-            <div class="col-6 col-md-2">
-                <div class="metric-card">
-                    <span class="metric-label">Pending</span>
-                    <span class="metric-value" style="color: #d97706;"><?= sprintf('%02d', $pending_count); ?></span>
-                </div>
-            </div>
-            <div class="col-6 col-md-2">
-                <div class="metric-card">
-                    <span class="metric-label">Approved</span>
-                    <span class="metric-value" style="color: #047857;"><?= sprintf('%02d', $approved_count); ?></span>
-                </div>
-            </div>
-            <div class="col-6 col-md-2">
-                <div class="metric-card">
-                    <span class="metric-label">Assigned</span>
-                    <span class="metric-value" style="color: #0284c7;"><?= sprintf('%02d', $assigned_count); ?></span>
-                </div>
-            </div>
-            <div class="col-6 col-md-3">
-                <div class="metric-card">
-                    <span class="metric-label">In Progress</span>
-                    <span class="metric-value" style="color: #4f46e5;"><?= sprintf('%02d', $in_progress_count); ?></span>
-                </div>
-            </div>
-            <div class="col-6 col-md-3">
-                <div class="metric-card">
-                    <span class="metric-label">Completed</span>
-                    <span class="metric-value" style="color: #059669;"><?= sprintf('%02d', $completed_count); ?></span>
+                <div class="dropdown">
+                    <button class="btn border-0 dropdown-toggle fw-bold text-dark p-0" data-bs-toggle="dropdown">
+                        <i class="ri-user-3-line me-1"></i> <?= e($current_user_name) ?>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="profile.php">Profile</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="logout.php">Logout</a></li>
+                    </ul>
                 </div>
             </div>
         </div>
+    </nav>
 
-        <!-- Filter Panel -->
-        <form class="filter-panel" id="filterForm">
-            <input type="text" id="searchInput" class="filter-input" placeholder="🔍 Search Pickup...">
-            <select id="statusSelect" class="filter-select">
-                <option value="">Status (All)</option>
-                <option value="Pending">Pending</option>
-                <option value="Approved">Approved</option>
-                <option value="Assigned">Assigned</option>
-                <option value="In Progress">In Progress</option>
-                <option value="Verified">Verified / Completed</option>
-            </select>
-            <select id="scrapTypeSelect" class="filter-select">
-                <option value="">Scrap Type (All)</option>
-                <option value="Plastic">Plastic</option>
-                <option value="Metal">Metal</option>
-                <option value="Glass">Glass</option>
-                <option value="Paper">Paper</option>
-            </select>
-            <button type="submit" class="btn-filter-search">Search</button>
-        </form>
-
-        <div class="row g-4">
-            <!-- Feed Column (Centered Layout) -->
-            <div class="col-12 col-lg-10 mx-auto">
-                <?php if (!empty($rows)) { 
-                    foreach ($rows as $row) { 
-                        $status = $row['status'] ?? 'Pending';
-                        $status_clean = strtolower(trim($status));
-                ?>
-                    <div class="card-wrapper" data-status="<?= htmlspecialchars($status); ?>" data-type="<?= htmlspecialchars($row['scrap_type']); ?>">
-                        
-                        <!-- Card Top Header -->
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <span class="fw-bold text-dark fs-6">📦 Request #REQ-<?= htmlspecialchars($row['activity_id']); ?></span>
-                            <?php 
-                                if ($status_clean === 'pending')                             echo '<span class="status-badge badge-pending">🟡 Pending</span>';
-                                elseif ($status_clean === 'approved')                        echo '<span class="status-badge badge-approved">🟢 Approved</span>';
-                                elseif ($status_clean === 'assigned')                        echo '<span class="status-badge badge-assigned">🟣 Assigned</span>';
-                                elseif ($status_clean === 'in progress')                     echo '<span class="status-badge badge-in-progress">🔵 In Progress</span>';
-                                elseif ($status_clean === 'verified' || $status_clean === 'completed') echo '<span class="status-badge badge-completed">🟢 Completed</span>';
-                            ?>
-                        </div>
-
-                        <!-- Main Info Section -->
-                        <div class="row align-items-center">
-                            <div class="col-md-7">
-                                <h5 class="fw-bold mb-1">♻ <?= htmlspecialchars($row['scrap_type']); ?> Scrap</h5>
-                                <p class="text-muted small mb-1">📍 <?= htmlspecialchars($row['pickup_address']); ?>, PIN: <?= htmlspecialchars($row['pickup_pincode']); ?></p>
-                            </div>
-                            <div class="col-md-5 text-md-end">
-                                <div class="fw-bold fs-6"><?= htmlspecialchars($row['scrap_weight']); ?> kg</div>
-                                <div class="text-muted small">Pickup Date: <?= htmlspecialchars($row['preferred_pickup_date']); ?> (<?= htmlspecialchars($row['pickup_time']); ?>)</div>
-                                <?php if (!empty($row['amount'])) { ?>
-                                    <div class="fw-bold text-success fs-5">₹ <?= htmlspecialchars($row['amount']); ?></div>
-                                <?php } ?>
-                            </div>
-                        </div>
-
-                        <!-- Collector Box (Only renders AFTER the collector accepts the request) -->
-                        <?php 
-                            $is_accepted = !empty($row['collector_name']) && !in_array($status_clean, ['pending', 'approved', 'assigned']);
-                            if ($is_accepted) { 
-                        ?>
-                            <div class="collector-box">
-                                <span class="fw-bold d-block text-muted small mb-2">👤 ASSIGNED COLLECTOR</span>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <div class="fw-bold text-dark"><?= htmlspecialchars($row['collector_name']); ?></div>
-                                        <div class="small text-muted">
-                                            <i class="ri-phone-line me-1"></i><?= htmlspecialchars($row['collector_phone']); ?>
-                                            <?php if (!empty($row['collector_vehicle'])) { ?>
-                                                <span class="ms-2">| <i class="ri-car-line ms-1 me-1"></i><?= htmlspecialchars($row['collector_vehicle']); ?></span>
-                                            <?php } ?>
-                                        </div>
-                                    </div>
-                                    <div class="text-end">
-                                        <a href="tel:<?= htmlspecialchars($row['collector_phone']); ?>" class="btn btn-sm btn-outline-success">
-                                            <i class="ri-phone-fill"></i> Call Collector
-                                        </a>
-                                    </div>
+    <main class="workspace-container">
+        <header class="header-banner">
+            <div class="row align-items-center g-3">
+                <div class="col-lg-7">
+                    <h1 class="header-title">My Pickup Requests</h1>
+                    <p class="header-subtitle">Track each request, review collector details, and follow your pickup progress in one place.</p>
+                </div>
+                <div class="col-lg-5">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <div class="stat-pill stat-pill-green">
+                                <div class="stat-icon-wrapper"><i class="ri-time-line"></i></div>
+                                <div>
+                                    <div class="stat-val"><?= (int)$pending_count ?></div>
+                                    <div class="stat-lbl">Pending</div>
                                 </div>
                             </div>
-                        <?php } ?>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-pill stat-pill-blue">
+                                <div class="stat-icon-wrapper"><i class="ri-truck-line"></i></div>
+                                <div>
+                                    <div class="stat-val"><?= (int)($assigned_count + $in_progress_count) ?></div>
+                                    <div class="stat-lbl">Active</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
 
-                        <!-- Action Controls -->
-                        <div class="d-flex gap-2 mt-3 pt-2 border-top border-light">
+        <div class="filter-card">
+            <form class="row g-3 align-items-center" id="filterForm">
+                <div class="col-md-6">
+                    <div class="search-box">
+                        <i class="ri-search-2-line"></i>
+                        <input type="text" id="searchInput" class="search-input" placeholder="Search pickup requests...">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <select id="statusSelect" class="form-select search-input">
+                        <option value="">Status (All)</option>
+                        <option value="pending">Pending</option>
+                        <option value="approved">Approved</option>
+                        <option value="assigned">Assigned</option>
+                        <option value="in progress">In Progress</option>
+                        <option value="verified">Verified / Completed</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select id="scrapTypeSelect" class="form-select search-input">
+                        <option value="">Scrap Type (All)</option>
+                        <option value="plastic">Plastic</option>
+                        <option value="metal">Metal</option>
+                        <option value="glass">Glass</option>
+                        <option value="paper">Paper</option>
+                        <option value="e-waste">E-Waste</option>
+                    </select>
+                </div>
+            </form>
+        </div>
 
-                            <?php if ($status_clean === 'pending' || $status_clean === 'approved') { ?>
+        <div class="row g-4">
+            <div class="col-12 col-lg-10 mx-auto">
+                <?php if (!empty($rows)) : ?>
+                    <?php foreach ($rows as $row) :
+                        $status = $row['status'] ?? 'Pending';
+                        $status_clean = strtolower(trim($status));
+                        $scrapType = $row['scrap_type'] ?? 'General';
+                        $collectorName = $row['collector_name'] ?? '';
+                        $collectorPhone = $row['collector_phone'] ?? '';
+                        $collectorVehicle = $row['collector_vehicle'] ?? '';
+                        $isAccepted = !empty($collectorName) && !in_array($status_clean, ['pending', 'approved', 'assigned'], true);
+                    ?>
+                        <div class="card-wrapper" data-status="<?= e($status_clean) ?>" data-type="<?= e(strtolower($scrapType)) ?>" data-search="<?= e(strtolower(
+                            ($row['pickup_address'] ?? '') . ' ' .
+                            ($row['pickup_pincode'] ?? '') . ' ' .
+                            ($row['scrap_type'] ?? '') . ' ' .
+                            ($row['status'] ?? '') . ' ' .
+                            ($collectorName ?? '')
+                        )) ?>">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <span class="fw-bold text-dark fs-6">📦 Request #REQ-<?= e($row['activity_id'] ?? '') ?></span>
+                                <?php if ($status_clean === 'pending') : ?>
+                                    <span class="status-badge badge-pending">🟡 Pending</span>
+                                <?php elseif ($status_clean === 'approved') : ?>
+                                    <span class="status-badge badge-approved">🟢 Approved</span>
+                                <?php elseif ($status_clean === 'assigned') : ?>
+                                    <span class="status-badge badge-assigned">🟣 Assigned</span>
+                                <?php elseif ($status_clean === 'in progress') : ?>
+                                    <span class="status-badge badge-in-progress">🔵 In Progress</span>
+                                <?php elseif ($status_clean === 'verified' || $status_clean === 'completed') : ?>
+                                    <span class="status-badge badge-completed">🟢 Completed</span>
+                                <?php endif; ?>
+                            </div>
 
-                                <a href="track_status.php?id=<?= htmlspecialchars($row['activity_id']); ?>" class="btn-custom-outline">
+                            <div class="row align-items-center">
+                                <div class="col-md-7">
+                                    <h5 class="fw-bold mb-1">♻ <?= e($scrapType) ?> Scrap</h5>
+                                    <p class="text-muted small mb-1">📍 <?= e($row['pickup_address'] ?? '') ?>, PIN: <?= e($row['pickup_pincode'] ?? '') ?></p>
+                                </div>
+                                <div class="col-md-5 text-md-end">
+                                    <div class="fw-bold fs-6"><?= e($row['scrap_weight'] ?? '') ?> kg</div>
+                                    <div class="text-muted small">Pickup Date: <?= e($row['preferred_pickup_date'] ?? '') ?> (<?= e($row['pickup_time'] ?? '') ?>)</div>
+                                    <?php if (!empty($row['amount'])) : ?>
+                                        <div class="fw-bold text-success fs-5">₹ <?= e($row['amount']) ?></div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+
+                            <?php if ($isAccepted) : ?>
+                                <div class="collector-box">
+                                    <span class="fw-bold d-block text-muted small mb-2">👤 ASSIGNED COLLECTOR</span>
+                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                        <div>
+                                            <div class="fw-bold text-dark"><?= e($collectorName) ?></div>
+                                            <div class="small text-muted">
+                                                <i class="ri-phone-line me-1"></i><?= e($collectorPhone) ?>
+                                                <?php if (!empty($collectorVehicle)) : ?>
+                                                    <span class="ms-2">| <i class="ri-car-line ms-1 me-1"></i><?= e($collectorVehicle) ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        <div class="text-end">
+                                            <a href="tel:<?= e($collectorPhone) ?>" class="btn btn-sm btn-outline-success">
+                                                <i class="ri-phone-fill"></i> Call Collector
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+
+                            <div class="d-flex gap-2 mt-3 pt-2 border-top border-light flex-wrap">
+                                <a href="track_status.php?id=<?= e($row['activity_id'] ?? '') ?>" class="btn-custom-outline">
                                     <i class="ri-eye-line"></i> View Details
                                 </a>
 
-                                <button class="btn-custom-outline text-danger border-danger-subtle">
-                                    <i class="ri-close-circle-line"></i> Cancel Request
-                                </button>
+                                <?php if ($status_clean === 'assigned' || $status_clean === 'in progress') : ?>
+                                    <a href="track_status.php?id=<?= e($row['activity_id'] ?? '') ?>" class="btn-custom-outline">
+                                        <i class="ri-map-pin-time-line"></i> Track Status
+                                    </a>
+                                <?php endif; ?>
 
-                            <?php } elseif ($status_clean === 'assigned') { ?>
-
-                                <button class="btn-custom-outline text-muted" disabled>
-                                    <i class="ri-time-line"></i> Awaiting Collector Acceptance
-                                </button>
-
-                                <a href="track_status.php?id=<?= htmlspecialchars($row['activity_id']); ?>" class="btn-custom-outline">
-                                    <i class="ri-map-pin-time-line"></i> Track Status
-                                </a>
-
-                            <?php } elseif ($status_clean === 'in progress') { ?>
-
-                                <?php if (!empty($row['qr_code'])) { ?>
-                                    <a href="../uploads/qr/<?= htmlspecialchars($row['qr_code']); ?>" target="_blank" class="btn-custom-primary">
+                                <?php if ($status_clean === 'in progress' && !empty($row['qr_code'])) : ?>
+                                    <a href="../uploads/qr/<?= e($row['qr_code']) ?>" target="_blank" rel="noopener noreferrer" class="btn-custom-primary">
                                         <i class="ri-qr-code-line"></i> View QR Pass
                                     </a>
-                                <?php } ?>
+                                <?php endif; ?>
 
-                                <a href="track_status.php?id=<?= htmlspecialchars($row['activity_id']); ?>" class="btn-custom-outline">
-                                    <i class="ri-map-pin-time-line"></i> Track Status
-                                </a>
-
-                            <?php } elseif ($status_clean === 'verified' || $status_clean === 'completed') { ?>
-
-                                <a href="track_status.php?id=<?= htmlspecialchars($row['activity_id']); ?>" class="btn-custom-outline">
-                                    <i class="ri-file-list-line"></i> View Receipt
-                                </a>
-
-                                <button class="btn-custom-outline text-warning border-warning-subtle">
-                                    <i class="ri-star-line"></i> Rate Collector
-                                </button>
-
-                            <?php } ?>
-
+                                <?php if ($status_clean === 'verified' || $status_clean === 'completed') : ?>
+                                    <a href="track_status.php?id=<?= e($row['activity_id'] ?? '') ?>" class="btn-custom-outline">
+                                        <i class="ri-file-list-line"></i> View Receipt
+                                    </a>
+                                <?php endif; ?>
+                            </div>
                         </div>
-
-                    </div>
-                <?php 
-                    } // end foreach
-                } else { 
-                ?>
-                    <div class="card-wrapper text-center py-5">
-                        <i class="ri-inbox-line text-muted mb-2" style="font-size: 48px;"></i>
+                    <?php endforeach; ?>
+                <?php else : ?>
+                    <div class="empty-state">
+                        <div class="empty-icon">
+                            <i class="ri-inbox-line"></i>
+                        </div>
                         <h5 class="fw-bold text-dark mb-1">No Requests Found</h5>
                         <p class="text-muted small mb-0">You haven't scheduled any pickup requests yet.</p>
                     </div>
-                <?php } ?>
+                <?php endif; ?>
             </div>
         </div>
-    </div>
+    </main>
 
-    <!-- Bootstrap 5 JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Client-side Filter Script
-        document.getElementById('filterForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            const searchVal = document.getElementById('searchInput').value.toLowerCase();
-            const statusVal = document.getElementById('statusSelect').value.toLowerCase();
-            const typeVal   = document.getElementById('scrapTypeSelect').value.toLowerCase();
+        const searchInput = document.getElementById('searchInput');
+        const statusSelect = document.getElementById('statusSelect');
+        const scrapTypeSelect = document.getElementById('scrapTypeSelect');
 
-            document.querySelectorAll('.card-wrapper[data-status]').forEach(card => {
-                const text       = card.innerText.toLowerCase();
-                const cardStatus = card.getAttribute('data-status').toLowerCase();
-                const cardType   = card.getAttribute('data-type').toLowerCase();
+        function filterCards() {
+            const searchVal = searchInput.value.toLowerCase().trim();
+            const statusVal = statusSelect.value.toLowerCase().trim();
+            const typeVal = scrapTypeSelect.value.toLowerCase().trim();
 
-                const matchesSearch = text.includes(searchVal);
+            document.querySelectorAll('.card-wrapper').forEach(card => {
+                const text = card.getAttribute('data-search') || '';
+                const cardStatus = card.getAttribute('data-status') || '';
+                const cardType = card.getAttribute('data-type') || '';
+
+                const matchesSearch = !searchVal || text.includes(searchVal);
                 const matchesStatus = !statusVal || cardStatus.includes(statusVal);
-                const matchesType   = !typeVal   || cardType.includes(typeVal);
+                const matchesType = !typeVal || cardType.includes(typeVal);
 
-                if (matchesSearch && matchesStatus && matchesType) {
-                    card.style.display = 'block';
-                } else {
-                    card.style.display = 'none';
-                }
+                card.style.display = (matchesSearch && matchesStatus && matchesType) ? 'block' : 'none';
             });
-        });
+        }
+
+        searchInput.addEventListener('input', filterCards);
+        statusSelect.addEventListener('change', filterCards);
+        scrapTypeSelect.addEventListener('change', filterCards);
     </script>
 </body>
 </html>

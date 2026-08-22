@@ -35,10 +35,16 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // --------------------------------------------------
-// 3. GET POST DATA
+// 3. CSRF VERIFICATION
 // --------------------------------------------------
 
-$activity_id = (int)($_POST['activity_id'] ?? 0);
+verifyCsrfToken();
+
+// --------------------------------------------------
+// 4. GET POST DATA
+// --------------------------------------------------
+
+$activity_id  = (int)($_POST['activity_id'] ?? 0);
 $collector_id = (int)($_POST['collector_id'] ?? 0);
 
 if ($activity_id <= 0 || $collector_id <= 0) {
@@ -77,7 +83,8 @@ try {
             pickup_pincode,
             preferred_pickup_date,
             pickup_time,
-            status
+            status,
+            collector_id
         FROM activity
         WHERE activity_id = ?
         FOR UPDATE
@@ -105,27 +112,35 @@ try {
 
     // --------------------------------------------------
     // CHECK REQUEST STATUS
+    //
+    // Approved = Initial assignment
+    // Rejected = Reassignment
     // --------------------------------------------------
 
-    if ($activity['status'] !== "Approved") {
+    if (
+        $activity['status'] !== "Approved" &&
+        $activity['status'] !== "Rejected"
+    ) {
 
         throw new Exception(
-            "Only approved pickup requests can be assigned."
+            "This pickup request is not available for assignment or reassignment."
         );
     }
 
     $user_id = (int)$activity['user_id'];
     $scrap_type = $activity['scrap_type'];
+    $pickup_pincode = $activity['pickup_pincode'];
 
     // --------------------------------------------------
     // STEP 2:
-    // GET COLLECTOR
+    // GET SELECTED SCRAP COLLECTOR
     // --------------------------------------------------
 
     $stmt = $conn->prepare("
         SELECT
             collector_id,
             name,
+            pincode,
             availability_status,
             verification_status
         FROM scrapcollector
@@ -145,7 +160,7 @@ try {
     if ($result->num_rows === 0) {
 
         throw new Exception(
-            "Collector not found."
+            "Scrap collector not found."
         );
     }
 
@@ -156,6 +171,7 @@ try {
     $collector_name = $collector['name'];
 
     // --------------------------------------------------
+    // STEP 3:
     // CHECK COLLECTOR APPROVAL
     // --------------------------------------------------
 
@@ -164,11 +180,12 @@ try {
     ) {
 
         throw new Exception(
-            "Collector is not approved."
+            "Scrap collector is not approved."
         );
     }
 
     // --------------------------------------------------
+    // STEP 4:
     // CHECK COLLECTOR AVAILABILITY
     // --------------------------------------------------
 
@@ -177,13 +194,48 @@ try {
     ) {
 
         throw new Exception(
-            "Collector is currently busy."
+            "Scrap collector is currently busy."
         );
     }
 
     // --------------------------------------------------
-    // STEP 3:
-    // ASSIGN COLLECTOR
+    // STEP 5:
+    // CHECK PINCODE
+    // --------------------------------------------------
+
+    if (
+        (string)$collector['pincode'] !==
+        (string)$pickup_pincode
+    ) {
+
+        throw new Exception(
+            "Selected scrap collector does not serve this pincode."
+        );
+    }
+
+    // --------------------------------------------------
+    // STEP 6:
+    // PREVENT SAME COLLECTOR REASSIGNMENT
+    // --------------------------------------------------
+    //
+    // If this is a reassignment, do not assign the
+    // same rejected collector again.
+    //
+
+    if (
+        $activity['status'] === "Rejected" &&
+        !empty($activity['collector_id']) &&
+        (int)$activity['collector_id'] === $collector_id
+    ) {
+
+        throw new Exception(
+            "The previously rejected scrap collector cannot be assigned again."
+        );
+    }
+
+    // --------------------------------------------------
+    // STEP 7:
+    // ASSIGN SCRAP COLLECTOR
     // --------------------------------------------------
 
     $stmt = $conn->prepare("
@@ -205,21 +257,22 @@ try {
     if ($stmt->affected_rows !== 1) {
 
         throw new Exception(
-            "Failed to update pickup activity assignment."
+            "Failed to update pickup assignment."
         );
     }
 
     $stmt->close();
 
     // --------------------------------------------------
-    // STEP 4:
-    // MARK COLLECTOR BUSY
+    // STEP 8:
+    // MARK NEW COLLECTOR BUSY
     // --------------------------------------------------
 
     $stmt = $conn->prepare("
         UPDATE scrapcollector
         SET availability_status = 'Busy'
         WHERE collector_id = ?
+          AND availability_status = 'Available'
     ");
 
     $stmt->bind_param(
@@ -232,21 +285,19 @@ try {
     if ($stmt->affected_rows !== 1) {
 
         throw new Exception(
-            "Failed to update collector availability status."
+            "Failed to update scrap collector availability."
         );
     }
 
     $stmt->close();
 
-    // ==================================================
-    // STEP 5:
-    // 🔔 NOTIFY COLLECTOR
-    // ==================================================
+    // --------------------------------------------------
+    // STEP 9:
+    // NOTIFY NEW SCRAP COLLECTOR
+    // --------------------------------------------------
 
     $recipient_type = "Collector";
-
     $notification_type = "pickup_assigned";
-
     $title = "New Pickup Assigned";
 
     $message =
@@ -257,12 +308,10 @@ try {
         ".";
 
     $reference_id = $activity_id;
-
     $reference_type = "activity";
-
     $is_read = 0;
 
-    $notificationStmt = $conn->prepare("
+    $stmt = $conn->prepare("
         INSERT INTO notifications
         (
             recipient_type,
@@ -272,13 +321,14 @@ try {
             message,
             reference_id,
             reference_type,
-            is_read
+            is_read,
+            created_at
         )
         VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, NOW())
     ");
 
-    $notificationStmt->bind_param(
+    $stmt->bind_param(
         "sisssisi",
         $recipient_type,
         $collector_id,
@@ -290,19 +340,17 @@ try {
         $is_read
     );
 
-    $notificationStmt->execute();
+    $stmt->execute();
 
-    $notificationStmt->close();
+    $stmt->close();
 
-    // ==================================================
-    // STEP 6:
-    // 🔔 NOTIFY USER
-    // ==================================================
+    // --------------------------------------------------
+    // STEP 10:
+    // NOTIFY USER
+    // --------------------------------------------------
 
     $recipient_type = "User";
-
     $notification_type = "collector_assigned";
-
     $title = "Collector Assigned";
 
     $message =
@@ -315,12 +363,10 @@ try {
         ".";
 
     $reference_id = $activity_id;
-
     $reference_type = "activity";
-
     $is_read = 0;
 
-    $notificationStmt = $conn->prepare("
+    $stmt = $conn->prepare("
         INSERT INTO notifications
         (
             recipient_type,
@@ -330,13 +376,14 @@ try {
             message,
             reference_id,
             reference_type,
-            is_read
+            is_read,
+            created_at
         )
         VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, NOW())
     ");
 
-    $notificationStmt->bind_param(
+    $stmt->bind_param(
         "sisssisi",
         $recipient_type,
         $user_id,
@@ -348,25 +395,39 @@ try {
         $is_read
     );
 
-    $notificationStmt->execute();
+    $stmt->execute();
 
-    $notificationStmt->close();
+    $stmt->close();
 
     // --------------------------------------------------
-    // STEP 7:
+    // STEP 11:
     // COMMIT EVERYTHING
     // --------------------------------------------------
 
     $conn->commit();
 
-    $_SESSION['msg'] =
-        "Collector assigned successfully. " .
-        "Both the collector and user have been notified.";
+    // --------------------------------------------------
+    // SUCCESS MESSAGE
+    // --------------------------------------------------
+
+    if ($activity['status'] === "Rejected") {
+
+        $_SESSION['msg'] =
+            "Pickup request reassigned successfully to " .
+            $collector_name .
+            ". The user and scrap collector have been notified.";
+
+    } else {
+
+        $_SESSION['msg'] =
+            "Scrap collector assigned successfully. " .
+            "The user and scrap collector have been notified.";
+    }
 
 } catch (Exception $e) {
 
     // --------------------------------------------------
-    // ROLLBACK IF ANYTHING FAILS
+    // ROLLBACK
     // --------------------------------------------------
 
     try {
