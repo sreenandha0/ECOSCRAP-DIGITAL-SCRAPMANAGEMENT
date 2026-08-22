@@ -211,54 +211,56 @@ try {
     // ==========================================================
     // STEP 6: NOTIFY ADMIN
     // ==========================================================
-    $admin_id = 1;
-
     $admin_title = "Pickup Request Rejected";
 
     $admin_message =
         "Scrap collector {$collector_name} has rejected pickup request #{$activity_id}. The request may require reassignment.";
 
-    $stmt = $conn->prepare("
-        INSERT INTO notifications
-        (
-            recipient_type,
-            recipient_id,
-            notification_type,
-            title,
-            message,
-            reference_id,
-            reference_type,
-            is_read,
-            created_at
-        )
-        VALUES
-        (
-            'Admin',
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            NOW()
-        )
-    ");
+    $adminQuery = $conn->query("SELECT admin_id FROM admin");
+    if ($adminQuery) {
+        $stmt = $conn->prepare("
+            INSERT INTO notifications
+            (
+                recipient_type,
+                recipient_id,
+                notification_type,
+                title,
+                message,
+                reference_id,
+                reference_type,
+                is_read,
+                created_at
+            )
+            VALUES
+            (
+                'Admin',
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                NOW()
+            )
+        ");
 
-    $stmt->bind_param(
-        "isssisi",
-        $admin_id,
-        $notification_type,
-        $admin_title,
-        $admin_message,
-        $activity_id,
-        $reference_type,
-        $is_read
-    );
-
-    $stmt->execute();
-
-    $stmt->close();
+        while ($admin = $adminQuery->fetch_assoc()) {
+            $admin_id = (int) $admin['admin_id'];
+            $stmt->bind_param(
+                "isssisi",
+                $admin_id,
+                $notification_type,
+                $admin_title,
+                $admin_message,
+                $activity_id,
+                $reference_type,
+                $is_read
+            );
+            $stmt->execute();
+        }
+        $stmt->close();
+    }
 
 
     // ==========================================================

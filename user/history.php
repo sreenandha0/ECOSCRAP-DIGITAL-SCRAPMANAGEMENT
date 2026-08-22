@@ -608,6 +608,15 @@ $stmt->close();
                                     <a href="track_status.php?id=<?= e($row['activity_id'] ?? '') ?>" class="btn-custom-outline">
                                         <i class="ri-file-list-line"></i> View Receipt
                                     </a>
+                                    <?php if (empty($row['rating'])) : ?>
+                                        <a href="feedback.php?id=<?= e($row['activity_id'] ?? '') ?>" class="btn-custom-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+                                            <i class="ri-star-line"></i> Leave Feedback
+                                        </a>
+                                    <?php else : ?>
+                                        <span class="btn-custom-outline" style="color: #d97706; border-color: #fcd34d;">
+                                            <i class="ri-star-fill"></i> Rated <?= (int)$row['rating'] ?>/5
+                                        </span>
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             </div>
                         </div>

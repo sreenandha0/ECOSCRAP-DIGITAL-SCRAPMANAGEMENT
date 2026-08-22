@@ -1,21 +1,19 @@
 <?php
 session_start();
 
-// Database Connection
-$host = "localhost";
-$user = "root";
-$pass = "";
-$db   = "ecoscrap_db";
-
-$conn = new mysqli($host, $user, $pass, $db);
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'User') {
+    header("Location: ../login.php");
+    exit();
 }
+$user_id = (int)$_SESSION['user_id'];
+
+// Database Connection
+require_once "../includes/db.php";
 
 // Ensure an Activity ID is provided
-$activity_id = $_GET['id'] ?? null;
+$activity_id = isset($_GET['id']) ? (int)$_GET['id'] : null;
 if (!$activity_id) {
-    header("Location: my_requests.php");
+    header("Location: history.php");
     exit();
 }
 
@@ -28,10 +26,10 @@ $sql = "SELECT
             c.profile_image AS collector_img
         FROM activity a
         LEFT JOIN scrapcollector c ON a.collector_id = c.collector_id
-        WHERE a.activity_id = ?";
+        WHERE a.activity_id = ? AND a.user_id = ?";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $activity_id);
+$stmt->bind_param("ii", $activity_id, $user_id);
 $stmt->execute();
 $request = $stmt->get_result()->fetch_assoc();
 $stmt->close();

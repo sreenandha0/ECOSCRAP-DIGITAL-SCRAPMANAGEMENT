@@ -100,6 +100,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
             $stmt_avail->bind_param("i", $collector_id);
             $stmt_avail->execute();
             $stmt_avail->close();
+            
+            // --------------------------------------------------
+            // FETCH ACTIVITY DETAILS FOR NOTIFICATION
+            // --------------------------------------------------
+            $stmt_act = $conn->prepare("SELECT user_id, scrap_type FROM activity WHERE activity_id = ?");
+            $stmt_act->bind_param("i", $activity_id);
+            $stmt_act->execute();
+            $res_act = $stmt_act->get_result();
+            if ($act_row = $res_act->fetch_assoc()) {
+                $user_id = (int)$act_row['user_id'];
+                $scrap_type = $act_row['scrap_type'];
+                
+                // NOTIFY USER
+                $notification_type = "pickup_completed";
+                $reference_type = "activity";
+                $is_read = 0;
+                $user_title = "Pickup Completed";
+                $user_message = "Your {$scrap_type} pickup request #{$activity_id} has been successfully completed by {$collector_name}. Thank you for using EcoScrap!";
+                
+                $stmt_notif = $conn->prepare("INSERT INTO notifications (recipient_type, recipient_id, notification_type, title, message, reference_id, reference_type, is_read, created_at) VALUES ('User', ?, ?, ?, ?, ?, ?, ?, NOW())");
+                $stmt_notif->bind_param("isssisi", $user_id, $notification_type, $user_title, $user_message, $activity_id, $reference_type, $is_read);
+                $stmt_notif->execute();
+                $stmt_notif->close();
+                
+                // NOTIFY ADMIN
+                $admin_title = "Pickup Completed";
+                $admin_message = "Pickup request #{$activity_id} has been completed by {$collector_name}.";
+                $adminQuery = $conn->query("SELECT admin_id FROM admin");
+                if ($adminQuery) {
+                    $stmt_notif_admin = $conn->prepare("INSERT INTO notifications (recipient_type, recipient_id, notification_type, title, message, reference_id, reference_type, is_read, created_at) VALUES ('Admin', ?, ?, ?, ?, ?, ?, ?, NOW())");
+                    while ($admin = $adminQuery->fetch_assoc()) {
+                        $admin_id = (int) $admin['admin_id'];
+                        $stmt_notif_admin->bind_param("isssisi", $admin_id, $notification_type, $admin_title, $admin_message, $activity_id, $reference_type, $is_read);
+                        $stmt_notif_admin->execute();
+                    }
+                    $stmt_notif_admin->close();
+                }
+            }
+            $stmt_act->close();
 
             $conn->commit();
 

@@ -41,7 +41,7 @@ try {
     ==========================================================
     */
     $stmt = $conn->prepare("
-        SELECT activity_id
+        SELECT activity_id, user_id
         FROM activity
         WHERE activity_id = ?
         AND collector_id = ?
@@ -55,6 +55,26 @@ try {
     if ($result->num_rows === 0) {
         throw new Exception("Pickup request not found or no longer available for acceptance.");
     }
+    
+    $pickup = $result->fetch_assoc();
+    $user_id = (int)$pickup['user_id'];
+    
+    $stmt->close();
+
+    /*
+    ==========================================================
+    STEP 1.5: GET SCRAP COLLECTOR NAME
+    ==========================================================
+    */
+    $stmt = $conn->prepare("SELECT name FROM scrapcollector WHERE collector_id = ?");
+    $stmt->bind_param("i", $collector_id);
+    $stmt->execute();
+    $collectorResult = $stmt->get_result();
+    if ($collectorResult->num_rows === 0) {
+        throw new Exception("Scrap collector account not found.");
+    }
+    $collector = $collectorResult->fetch_assoc();
+    $collector_name = $collector['name'];
     $stmt->close();
 
     /*
@@ -124,6 +144,47 @@ try {
     $stmt->bind_param("i", $collector_id);
     $stmt->execute();
     $stmt->close();
+
+    /*
+    ==========================================================
+    STEP 5: NOTIFY USER & ADMIN
+    ==========================================================
+    */
+    $notification_type = "pickup_accepted";
+    $reference_type = "activity";
+    $is_read = 0;
+    
+    // Notify User
+    $user_title = "Pickup Accepted";
+    $user_message = "Your pickup request #{$activity_id} has been accepted by {$collector_name} and is now In Progress.";
+    
+    $stmt = $conn->prepare("
+        INSERT INTO notifications
+        (recipient_type, recipient_id, notification_type, title, message, reference_id, reference_type, is_read, created_at)
+        VALUES ('User', ?, ?, ?, ?, ?, ?, ?, NOW())
+    ");
+    $stmt->bind_param("isssisi", $user_id, $notification_type, $user_title, $user_message, $activity_id, $reference_type, $is_read);
+    $stmt->execute();
+    $stmt->close();
+    
+    // Notify Admin (fetch all admins)
+    $admin_title = "Pickup Accepted";
+    $admin_message = "Pickup request #{$activity_id} has been accepted by {$collector_name}.";
+    
+    $adminQuery = $conn->query("SELECT admin_id FROM admin");
+    if ($adminQuery) {
+        $stmt = $conn->prepare("
+            INSERT INTO notifications
+            (recipient_type, recipient_id, notification_type, title, message, reference_id, reference_type, is_read, created_at)
+            VALUES ('Admin', ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+        while ($admin = $adminQuery->fetch_assoc()) {
+            $admin_id = (int)$admin['admin_id'];
+            $stmt->bind_param("isssisi", $admin_id, $notification_type, $admin_title, $admin_message, $activity_id, $reference_type, $is_read);
+            $stmt->execute();
+        }
+        $stmt->close();
+    }
 
     // Commit transaction
     $conn->commit();
