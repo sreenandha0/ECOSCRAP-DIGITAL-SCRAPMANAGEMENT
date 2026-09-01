@@ -9,6 +9,7 @@ $user_id = (int)$_SESSION['user_id'];
 
 // Database Connection
 require_once "../includes/db.php";
+require_once "navbar.php";
 
 // Ensure an Activity ID is provided
 $activity_id = isset($_GET['id']) ? (int)$_GET['id'] : null;
@@ -251,20 +252,20 @@ if ($status_clean === 'assigned') {
             color: #FFF;
         }
     </style>
+    <link rel="stylesheet" href="../assets/css/user.css">
 </head>
 
 <body>
 
-    <!-- Navigation Header -->
-    <header class="header-bar">
-        <a href="history.php" class="brand-title">
-            <i class="ri-arrow-left-line"></i>
-            <span>Track Pickup</span>
-        </a>
-        <span class="badge bg-light text-dark border px-3 py-2 rounded-pill fw-semibold fs-7">
-            Request #REQ-<?= htmlspecialchars($request['activity_id']); ?>
-        </span>
-    </header>
+    <?php ecoscrap_render_user_navbar('track_status.php'); ?>
+    <main class="user-page-shell">
+        <div class="user-page-heading">
+            <?php ecoscrap_render_user_back_button(); ?>
+            <div class="user-page-heading-copy">
+                <h1>Track pickup</h1>
+                <p>Follow the progress of request #REQ-<?= htmlspecialchars($request['activity_id']); ?>.</p>
+            </div>
+        </div>
 
     <div class="container my-4">
 
@@ -422,6 +423,7 @@ if ($status_clean === 'assigned') {
     </div>
 
     <!-- Bootstrap 5 JS -->
+    </main>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

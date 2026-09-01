@@ -2,7 +2,7 @@
 session_start();
 
 // Ensure user is logged in
-if (!isset($_SESSION['user_id'])) {
+if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'User') {
     http_response_code(403);
     die("Unauthorized access.");
 }

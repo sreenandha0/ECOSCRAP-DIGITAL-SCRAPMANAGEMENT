@@ -5,23 +5,26 @@ require_once "../includes/db.php";
 require_once "../includes/functions.php";
 
 // Allow POST only
-if ($_SERVER["REQUEST_METHOD"] != "POST") {
+if ($_SERVER["REQUEST_METHOD"] !== "POST") {
     redirect("register.php");
 }
 
-// Get Data
-$name        = sanitize($_POST['name']);
-$email       = sanitize($_POST['email']);
-$phone       = sanitize($_POST['phone']);
-$vehicle_no  = strtoupper(sanitize($_POST['vehicle_no']));
-$pincode     = sanitize($_POST['pincode']);
+// -----------------------------
+// Get Data Safely
+// -----------------------------
 
-$password    = $_POST['password'];
-$confirm     = $_POST['confirm_password'];
+$name       = sanitize($_POST['name'] ?? '');
+$email      = sanitize($_POST['email'] ?? '');
+$phone      = sanitize($_POST['phone'] ?? '');
+$vehicle_no = strtoupper(str_replace(' ', '', sanitize($_POST['vehicle_no'] ?? '')));
+$pincode    = sanitize($_POST['pincode'] ?? '');
+
+$password = $_POST['password'] ?? '';
+$confirm  = $_POST['confirm_password'] ?? '';
 
 
 // -----------------------------
-// Validation
+// Required Field Validation
 // -----------------------------
 
 if (
@@ -37,27 +40,73 @@ if (
     redirect("register.php");
 }
 
-if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    setMessage("danger", "Invalid email address.");
+
+// -----------------------------
+// Name Validation
+// -----------------------------
+
+if (!preg_match('/^[a-zA-Z\s.]{2,100}$/', $name)) {
+    setMessage("danger", "Please enter a valid name.");
     redirect("register.php");
 }
+
+
+// -----------------------------
+// Email Validation
+// -----------------------------
+
+if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    setMessage("danger", "Please enter a valid email address.");
+    redirect("register.php");
+}
+
+
+// -----------------------------
+// Phone Validation
+// -----------------------------
 
 if (!preg_match('/^[0-9]{10}$/', $phone)) {
-    setMessage("danger", "Phone number must be 10 digits.");
+    setMessage("danger", "Phone number must be exactly 10 digits.");
     redirect("register.php");
 }
 
+
+// -----------------------------
+// Pincode Validation
+// -----------------------------
+
 if (!preg_match('/^[0-9]{6}$/', $pincode)) {
-    setMessage("danger", "Pincode must be 6 digits.");
+    setMessage("danger", "Pincode must be exactly 6 digits.");
     redirect("register.php");
 }
+
+
+// -----------------------------
+// Vehicle Number Validation
+// -----------------------------
+// Example: KL01AB1234
+
+if (!preg_match('/^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}$/', $vehicle_no)) {
+    setMessage("danger", "Please enter a valid vehicle number.");
+    redirect("register.php");
+}
+
+
+// -----------------------------
+// Password Validation
+// -----------------------------
 
 if (strlen($password) < 8) {
     setMessage("danger", "Password must contain at least 8 characters.");
     redirect("register.php");
 }
 
-if ($password != $confirm) {
+
+// -----------------------------
+// Confirm Password
+// -----------------------------
+
+if ($password !== $confirm) {
     setMessage("danger", "Passwords do not match.");
     redirect("register.php");
 }
@@ -78,7 +127,6 @@ $stmt->execute();
 $stmt->store_result();
 
 if ($stmt->num_rows > 0) {
-
     $stmt->close();
 
     setMessage("danger", "Email already registered.");
@@ -103,7 +151,6 @@ $stmt->execute();
 $stmt->store_result();
 
 if ($stmt->num_rows > 0) {
-
     $stmt->close();
 
     setMessage("danger", "Phone number already exists.");
@@ -128,7 +175,6 @@ $stmt->execute();
 $stmt->store_result();
 
 if ($stmt->num_rows > 0) {
-
     $stmt->close();
 
     setMessage("danger", "Vehicle number already exists.");
@@ -153,7 +199,6 @@ $hashedPassword = password_hash(
 // -----------------------------
 
 $stmt = $conn->prepare("
-
     INSERT INTO scrapcollector
     (
         name,
@@ -166,7 +211,6 @@ $stmt = $conn->prepare("
         verification_status,
         completed_pickups
     )
-
     VALUES
     (
         ?, ?, ?, ?, ?, ?,
@@ -174,7 +218,6 @@ $stmt = $conn->prepare("
         'Pending',
         0
     )
-
 ");
 
 $stmt->bind_param(
@@ -194,16 +237,13 @@ $stmt->bind_param(
 
 if ($stmt->execute()) {
 
-    // Get newly created collector ID
     $collector_id = $stmt->insert_id;
 
-
-    // -----------------------------------------
+    // -----------------------------
     // Create Admin Notification
-    // -----------------------------------------
+    // -----------------------------
 
     $notification_type = "collector_registered";
-
     $notification_title = "New Collector Registration";
 
     $notification_message =
@@ -211,15 +251,10 @@ if ($stmt->execute()) {
         " has registered as a scrap collector and is waiting for approval.";
 
     $recipient_type = "Admin";
-
-    // Your admin table currently has admin_id = 1
     $recipient_id = 1;
-
     $reference_type = "collector";
 
-
     $notification_stmt = $conn->prepare("
-
         INSERT INTO notifications
         (
             recipient_type,
@@ -231,14 +266,11 @@ if ($stmt->execute()) {
             reference_type,
             is_read
         )
-
         VALUES
         (
             ?, ?, ?, ?, ?, ?, ?, 0
         )
-
     ");
-
 
     if ($notification_stmt) {
 
@@ -254,14 +286,15 @@ if ($stmt->execute()) {
         );
 
         $notification_stmt->execute();
-
         $notification_stmt->close();
     }
 
-
-    // -----------------------------------------
+    // -----------------------------
     // Registration Success
-    // -----------------------------------------
+    // -----------------------------
+
+    $stmt->close();
+    $conn->close();
 
     setMessage(
         "success",
@@ -270,12 +303,14 @@ if ($stmt->execute()) {
 
     redirect("../login.php");
 
-
 } else {
 
-    // -----------------------------------------
+    // -----------------------------
     // Registration Failed
-    // -----------------------------------------
+    // -----------------------------
+
+    $stmt->close();
+    $conn->close();
 
     setMessage(
         "danger",
@@ -284,13 +319,4 @@ if ($stmt->execute()) {
 
     redirect("register.php");
 }
-
-
-// -----------------------------
-// Close Connections
-// -----------------------------
-
-$stmt->close();
-$conn->close();
-
 ?>

@@ -60,7 +60,7 @@
                 <a href="index.php" class="brand-logo">
 
                     <img
-                        src="assets/logo/ecoscrap-logo.png.png"
+                        src="assets/logo/ecoscrap-logo.png"
                         alt="EcoScrap Logo">
 
                     <span>EcoScrap</span>
@@ -81,7 +81,7 @@
                         playsinline>
 
                         <source
-                            src="assets/logo/ecoscrap-logo.mp4.mp4"
+                            src="assets/logo/ecoscrap-logo.mp4"
                             type="video/mp4">
 
                     </video>
@@ -187,7 +187,7 @@
                     <div class="mobile-logo">
 
                         <img
-                            src="assets/logo/ecoscrap-logo.png.png"
+                            src="assets/logo/ecoscrap-logo.png"
                             alt="EcoScrap">
 
                         <span>EcoScrap</span>

@@ -20,15 +20,12 @@ try {
     $db_error = $e->getMessage();
 }
 
-// Handle Switching Collector ID via Dropdown Query String
-if (isset($_GET['switch_collector_id']) && is_numeric($_GET['switch_collector_id'])) {
-    $_SESSION['collector_id'] = intval($_GET['switch_collector_id']);
-    header("Location: dashboard.php");
+if (!isset($_SESSION['collector_id']) || ($_SESSION['role'] ?? '') !== 'Collector') {
+    header("Location: ../login.php");
     exit();
 }
 
-// Default Collector ID if session is empty (Default to 1 or first available record)
-$collector_id = $_SESSION['collector_id'] ?? 1;
+$collector_id = $_SESSION['collector_id'];
 
 // Handle AJAX Status Update request for scrapcollector table
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_status') {

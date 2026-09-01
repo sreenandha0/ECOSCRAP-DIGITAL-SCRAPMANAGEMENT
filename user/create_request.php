@@ -1,251 +1,99 @@
 <?php
-
 session_start();
 
 require_once "../includes/db.php";
+require_once "../includes/functions.php";
 
-
-// =====================================================
-// AUTHENTICATION
-// =====================================================
-
-if (!isset($_SESSION['user_id'])) {
+if (!isset($_SESSION['user_id']) || !isset($_SESSION['role']) || $_SESSION['role'] !== 'User') {
     header("Location: ../login.php");
     exit();
 }
 
-
-$user_id = (int) $_SESSION['user_id'];
-
-
-// =====================================================
-// FETCH USER
-// =====================================================
-
-$stmt = $conn->prepare("
-    SELECT *
-    FROM `user`
-    WHERE user_id = ?
-    LIMIT 1
-");
-
-$stmt->bind_param("i", $user_id);
-$stmt->execute();
-
-$result = $stmt->get_result();
-$user = $result->fetch_assoc();
-
-$stmt->close();
-
-
-if (!$user) {
-    session_destroy();
-
-    header("Location: ../login.php");
-    exit();
+function e($value): string {
+    return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+$today = date("Y-m-d");
+$user_id = (int)($_SESSION['user_id'] ?? 0);
 
-// =====================================================
-// HELPER FUNCTIONS
-// =====================================================
+$user = [
+    'name' => '',
+    'address' => '',
+    'pincode' => ''
+];
 
-function escape_html($value): string
-{
-    return htmlspecialchars(
-        (string) ($value ?? ''),
-        ENT_QUOTES,
-        'UTF-8'
-    );
-}
-
-
-function get_initials(string $name): string
-{
-    $name = trim($name);
-
-    if ($name === '') {
-        return 'U';
+if ($user_id > 0) {
+    $stmt = $conn->prepare("SELECT name, address, pincode FROM `user` WHERE user_id = ? LIMIT 1");
+    if ($stmt) {
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        if ($row = $res->fetch_assoc()) {
+            $user['name'] = $row['name'] ?? '';
+            $user['address'] = $row['address'] ?? '';
+            $user['pincode'] = $row['pincode'] ?? '';
+        }
+        $stmt->close();
     }
-
-    $parts = preg_split('/\s+/', $name);
-
-    $first =
-        substr($parts[0] ?? 'U', 0, 1);
-
-    $second =
-        substr($parts[1] ?? '', 0, 1);
-
-    return strtoupper($first . $second);
 }
 
-
-$userName =
-    trim((string) ($user['name'] ?? 'User'));
-
-$userEmail =
-    trim((string) ($user['email'] ?? ''));
-
-$userAddress =
-    trim((string) ($user['address'] ?? ''));
-
-$userPincode =
-    trim((string) ($user['pincode'] ?? ''));
-
-$userInitials =
-    get_initials($userName);
-
-$currentDate =
-    date('Y-m-d');
-
+$flash = null;
+if (function_exists('getMessage')) {
+    $flash = getMessage();
+}
 ?>
-
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>EcoScrap | Create Pickup Request</title>
 
-    <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <meta
-        name="description"
-        content="Create a recyclable scrap pickup request with EcoScrap."
-    >
-
-    <title>
-        Create Pickup Request | EcoScrap
-    </title>
-
-
-    <!-- Google Font -->
-
-    <link
-        rel="preconnect"
-        href="https://fonts.googleapis.com"
-    >
-
-    <link
-        rel="preconnect"
-        href="https://fonts.gstatic.com"
-        crossorigin
-    >
-
-    <link
-        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
-        rel="stylesheet"
-    >
-
-
-    <!-- Remix Icons -->
-
-    <link
-        href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css"
-        rel="stylesheet"
-    >
-
-
-    <!-- Existing CSS -->
-
-    <link
-        rel="stylesheet"
-        href="../assets/css/style.css"
-    >
-
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet">
 
     <style>
-
         :root {
-            --bg: #f4f8f4;
-            --card: #ffffff;
-            --card-soft: #fbfdfb;
-
-            --border: #e0e9e1;
-            --border-dark: #cedbd0;
-
-            --green: #16a34a;
-            --green-dark: #14532d;
-            --green-soft: #e9f8ed;
-
-            --navy: #12231a;
-            --text: #17221b;
-            --muted: #77847b;
-            --soft: #9ba89f;
-
-            --danger: #dc2626;
-
-            --radius-xl: 22px;
-            --radius-lg: 17px;
-            --radius-md: 11px;
-
-            --shadow:
-                0 18px 45px rgba(20, 83, 45, .08);
-
-            --shadow-hover:
-                0 24px 55px rgba(20, 83, 45, .15);
-
-            --transition:
-                all .25s cubic-bezier(.4, 0, .2, 1);
+            --eco-light: #82c843;
+            --eco-primary: #2e7d32;
+            --eco-primary-dark: #236128;
+            --eco-dark: #004d40;
+            --eco-accent: #00b4d8;
+            --body-bg: #f1f5f4;
+            --text-main: #16342f;
+            --text-muted: #64748b;
+            --text-soft: #94a3b8;
+            --border: #e6eeeb;
+            --white: #ffffff;
+            --shadow-sm: 0 8px 25px rgba(22, 52, 47, 0.06);
+            --shadow-md: 0 18px 45px rgba(22, 52, 47, 0.10);
+            --radius-lg: 24px;
+            --radius-md: 16px;
+            --radius-sm: 12px;
+            --spring: cubic-bezier(0.16, 1, 0.3, 1);
         }
-
 
         * {
             box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
-
-
-        html {
-            scroll-behavior: smooth;
-        }
-
 
         body {
             min-height: 100vh;
-            margin: 0;
-            color: var(--text);
             background:
-                radial-gradient(
-                    circle at 10% 0%,
-                    rgba(187, 247, 208, .5),
-                    transparent 27%
-                ),
-                radial-gradient(
-                    circle at 95% 92%,
-                    rgba(186, 230, 253, .32),
-                    transparent 25%
-                ),
-                var(--bg);
-            font-family:
-                'Plus Jakarta Sans',
-                system-ui,
-                -apple-system,
-                sans-serif;
+                radial-gradient(circle at 90% 0%, rgba(130, 200, 67, 0.14), transparent 30%),
+                var(--body-bg);
+            color: var(--text-main);
+            font-family: "DM Sans", sans-serif;
         }
-
-
-        body::before {
-            position: fixed;
-            z-index: -1;
-            inset: 0;
-            content: '';
-            pointer-events: none;
-            background:
-                linear-gradient(
-                    135deg,
-                    rgba(255, 255, 255, .3),
-                    transparent 55%
-                );
-        }
-
 
         a {
+            color: inherit;
             text-decoration: none;
         }
-
 
         button,
         input,
@@ -254,2386 +102,781 @@ $currentDate =
             font: inherit;
         }
 
-
-        /* =====================================================
-           NAVBAR
-        ===================================================== */
-
-        .navbar {
-            position: sticky;
-            top: 15px;
-            z-index: 100;
-            width: min(1240px, calc(100% - 40px));
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 20px;
-            margin: 15px auto 0;
-            padding: 11px 14px;
-            background: rgba(255, 255, 255, .92);
-            border: 1px solid var(--border);
-            border-radius: 15px;
-            box-shadow: var(--shadow);
-            backdrop-filter: blur(18px);
-            -webkit-backdrop-filter: blur(18px);
+        .user-page-shell {
+            min-height: 100vh;
+            padding: 34px 5% 52px;
         }
 
-
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 9px;
-            flex-shrink: 0;
-            color: var(--green-dark);
+        .page-top {
+            max-width: 1520px;
+            margin: 0 auto 22px;
         }
 
-
-        .brand:hover {
-            color: var(--green-dark);
-        }
-
-
-        .brand-logo {
-            width: 41px;
-            height: 41px;
-            padding: 3px;
-            object-fit: contain;
-            background: #ffffff;
-            border: 1px solid var(--border);
-            border-radius: 11px;
-        }
-
-
-        .brand-text {
-            display: flex;
-            flex-direction: column;
-            line-height: 1.1;
-        }
-
-
-        .brand-title {
-            color: var(--green-dark);
-            font-size: 16px;
-            font-weight: 800;
-        }
-
-
-        .brand-subtitle {
-            margin-top: 4px;
-            color: var(--green);
-            font-size: 8px;
-            font-weight: 800;
-            letter-spacing: .7px;
-            text-transform: uppercase;
-        }
-
-
-        .nav-links {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            margin-left: auto;
-        }
-
-
-        .nav-link {
+        .breadcrumb {
             display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            padding: 10px 12px;
-            color: var(--muted);
-            border-radius: 10px;
-            font-size: 11px;
-            font-weight: 700;
-            transition: var(--transition);
-        }
-
-
-        .nav-link i {
-            font-size: 17px;
-        }
-
-
-        .nav-link:hover {
-            color: var(--green-dark);
-            background: var(--green-soft);
-        }
-
-
-        .nav-link.active {
-            color: var(--green-dark);
-            background: var(--green-soft);
-            box-shadow: inset 0 -2px 0 var(--green);
-        }
-
-
-        .nav-right {
-            display: flex;
-            align-items: center;
-            gap: 9px;
-            flex-shrink: 0;
-        }
-
-
-        .user-chip {
-            display: flex;
             align-items: center;
             gap: 8px;
-            padding: 5px 9px 5px 5px;
-            background: #f7fbf7;
-            border: 1px solid var(--border);
-            border-radius: 10px;
+            color: var(--text-muted);
+            font-size: 13px;
+            margin-bottom: 12px;
         }
 
-
-        .user-avatar {
-            width: 30px;
-            height: 30px;
-            display: grid;
-            place-items: center;
-            color: #ffffff;
-            background: linear-gradient(
-                135deg,
-                #22c55e,
-                #166534
-            );
-            border-radius: 9px;
-            font-size: 10px;
-            font-weight: 800;
+        .breadcrumb a {
+            color: var(--eco-primary);
+            font-weight: 700;
         }
 
-
-        .user-name {
-            max-width: 100px;
-            overflow: hidden;
-            color: var(--green-dark);
-            font-size: 10px;
-            font-weight: 800;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        .page-title {
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: clamp(28px, 3vw, 38px);
+            color: var(--eco-dark);
+            letter-spacing: -0.7px;
+            margin-bottom: 8px;
         }
 
-
-        .logout-button {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 10px 12px;
-            color: #b91c1c;
-            background: #fff5f5;
-            border: 1px solid #fee2e2;
-            border-radius: 10px;
-            font-size: 11px;
-            font-weight: 800;
-            transition: var(--transition);
-        }
-
-
-        .logout-button:hover {
-            color: #ffffff;
-            background: #dc2626;
-        }
-
-
-        .menu-button {
-            display: none;
-            width: 39px;
-            height: 39px;
-            place-items: center;
-            color: var(--green-dark);
-            background: var(--green-soft);
-            border: 1px solid #c9ebd1;
-            border-radius: 10px;
-            font-size: 20px;
-            cursor: pointer;
-        }
-
-
-        /* =====================================================
-           PAGE WRAPPER
-        ===================================================== */
-
-        .page-wrapper {
-            width: min(1240px, calc(100% - 40px));
-            margin: 0 auto;
-            padding: 38px 0 70px;
-        }
-
-
-        .page-header {
-            display: flex;
-            align-items: flex-end;
-            justify-content: space-between;
-            gap: 20px;
-            margin-bottom: 27px;
-        }
-
-
-        .page-header-content {
-            text-align: center;
-            flex: 1;
-        }
-
-
-        .page-header h1 {
-            margin: 0;
-            color: var(--green-dark);
-            font-size: clamp(26px, 4vw, 37px);
-            font-weight: 800;
-            letter-spacing: -.9px;
-        }
-
-
-        .page-header p {
-            max-width: 520px;
-            margin: 10px auto 0;
-            color: var(--muted);
-            font-size: 12px;
+        .page-desc {
+            color: var(--text-muted);
+            font-size: 14px;
             line-height: 1.65;
+            max-width: 780px;
         }
 
+        .user-page-alert {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            max-width: 1520px;
+            margin: 18px auto 0;
+            padding: 13px 15px;
+            border: 1px solid #bde5c0;
+            border-radius: var(--radius-sm);
+            background: #effaf0;
+            color: #256029;
+            font-size: 13px;
+            font-weight: 600;
+        }
 
-        .back-link {
+        .impact-card {
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 25px;
+            min-height: 150px;
+            margin: 24px auto 25px;
+            padding: 27px 31px;
+            border-radius: var(--radius-lg);
+            background: linear-gradient(120deg, rgba(0, 77, 64, 0.97), rgba(46, 125, 50, 0.95));
+            color: white;
+            box-shadow: var(--shadow-md);
+            max-width: 1520px;
+        }
+
+        .impact-card::before {
+            position: absolute;
+            top: -75px;
+            right: 13%;
+            width: 210px;
+            height: 210px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 50%;
+            content: "";
+        }
+
+        .impact-card::after {
+            position: absolute;
+            top: -35px;
+            right: 5%;
+            width: 180px;
+            height: 180px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 50%;
+            content: "";
+        }
+
+        .impact-info {
+            position: relative;
+            z-index: 2;
+            max-width: 700px;
+        }
+
+        .impact-info .eyebrow {
             display: inline-flex;
             align-items: center;
             gap: 7px;
-            flex-shrink: 0;
-            padding: 10px 13px;
-            color: var(--green-dark);
-            background: #ffffff;
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            box-shadow: 0 8px 20px rgba(20,83,45,.05);
-            font-size: 11px;
+            margin-bottom: 10px;
+            color: var(--eco-light);
+            font-size: 12px;
             font-weight: 800;
-            transition: var(--transition);
+            letter-spacing: 0.3px;
         }
 
-
-        .back-link:hover {
-            color: var(--green);
-            border-color: #b8dec1;
-            transform: translateX(-3px);
-        }
-
-
-        /* =====================================================
-           TWO COLUMN LAYOUT
-        ===================================================== */
-
-        .request-layout {
-            display: grid;
-            grid-template-columns: minmax(0, 1.35fr) minmax(310px, .85fr);
-            align-items: start;
-            gap: 22px;
-        }
-
-
-        .card {
-            position: relative;
-            overflow: hidden;
-            padding: 26px;
-            background: rgba(255, 255, 255, .9);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-xl);
-            box-shadow: var(--shadow);
-        }
-
-
-        .card::before {
-            position: absolute;
-            top: 0;
-            right: 0;
-            left: 0;
-            height: 4px;
-            content: '';
-            background: linear-gradient(
-                90deg,
-                var(--green),
-                #86efac,
-                #bae6fd
-            );
-        }
-
-
-        .card-header {
-            display: flex;
-            align-items: center;
-            gap: 11px;
-            padding-bottom: 19px;
-            margin-bottom: 22px;
-            border-bottom: 1px solid #edf2ee;
-        }
-
-
-        .card-header-icon {
-            width: 39px;
-            height: 39px;
-            display: grid;
-            place-items: center;
-            flex-shrink: 0;
-            color: var(--green-dark);
-            background: var(--green-soft);
-            border-radius: 11px;
+        .impact-info h2 {
+            margin-bottom: 7px;
+            font-family: "Plus Jakarta Sans", sans-serif;
             font-size: 20px;
         }
 
-
-        .card-header h2 {
-            margin: 0;
-            color: var(--green-dark);
-            font-size: 14px;
-            font-weight: 800;
-            letter-spacing: .2px;
-            text-transform: uppercase;
+        .impact-info p {
+            max-width: 560px;
+            color: rgba(255,255,255,0.72);
+            font-size: 12px;
+            line-height: 1.6;
         }
 
-
-        .card-header p {
-            margin: 4px 0 0;
-            color: var(--muted);
-            font-size: 10px;
+        .impact-progress-wrap {
+            position: relative;
+            z-index: 2;
+            width: 260px;
+            flex: 0 0 260px;
         }
 
+        .impact-progress-head {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: rgba(255,255,255,0.75);
+            font-size: 11px;
+            font-weight: 600;
+        }
 
-        /* =====================================================
-           FORM
-        ===================================================== */
+        .impact-progress-head strong {
+            color: white;
+        }
+
+        .progress-bar {
+            height: 9px;
+            overflow: hidden;
+            border-radius: 9px;
+            background: rgba(255,255,255,0.18);
+        }
+
+        .progress-bar span {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border-radius: inherit;
+            background: var(--eco-light);
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.4fr) minmax(290px, 0.7fr);
+            gap: 20px;
+            max-width: 1520px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: var(--white);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+
+        .form-card {
+            padding: 26px;
+        }
+
+        .card-title {
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: 19px;
+            color: var(--eco-dark);
+            margin-bottom: 8px;
+        }
+
+        .card-desc {
+            color: var(--text-muted);
+            font-size: 13px;
+            line-height: 1.6;
+            margin-bottom: 22px;
+        }
+
+        .section {
+            padding-top: 18px;
+            margin-top: 18px;
+            border-top: 1px solid var(--border);
+        }
+
+        .section:first-of-type {
+            padding-top: 0;
+            margin-top: 0;
+            border-top: 0;
+        }
+
+        .section h3 {
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: 16px;
+            color: var(--eco-dark);
+            margin-bottom: 6px;
+        }
+
+        .section-note {
+            color: var(--text-muted);
+            font-size: 12px;
+            margin-bottom: 16px;
+        }
 
         .form-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 18px;
+            gap: 16px;
         }
-
-
-        .span-two {
-            grid-column: span 2;
-        }
-
 
         .form-group {
-            display: flex;
-            flex-direction: column;
-            min-width: 0;
+            display: grid;
+            gap: 8px;
         }
 
-
-        .form-label {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            margin-bottom: 7px;
-            color: var(--green-dark);
-            font-size: 11px;
-            font-weight: 800;
+        .form-group.full {
+            grid-column: 1 / -1;
         }
 
-
-        .required {
-            color: var(--danger);
+        label {
+            color: var(--text-main);
+            font-size: 13px;
+            font-weight: 700;
         }
 
-
-        .optional {
-            color: var(--soft);
-            font-size: 9px;
-            font-weight: 600;
-        }
-
-
-        .input-wrapper {
+        .field-wrap {
             position: relative;
-            display: flex;
-            align-items: center;
         }
 
-
-        .input-icon {
-            position: absolute;
-            z-index: 2;
-            left: 13px;
-            color: #99a79d;
-            font-size: 17px;
-            pointer-events: none;
-            transition: var(--transition);
-        }
-
-
-        .textarea-icon {
-            top: 13px;
-            align-self: flex-start;
-        }
-
-
-        .form-input,
-        .form-select {
+        input,
+        select,
+        textarea {
             width: 100%;
-            min-height: 44px;
-            padding: 11px 13px 11px 40px;
-            color: var(--text);
-            background: #ffffff;
-            border: 1.5px solid var(--border);
-            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 13px 14px;
+            background: #fff;
+            color: var(--text-main);
+            transition: 0.25s ease;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
             outline: none;
-            font-size: 11px;
-            transition: var(--transition);
+            border-color: var(--eco-light);
+            box-shadow: 0 0 0 4px rgba(130, 200, 67, 0.12);
         }
 
-
-        .form-input::placeholder {
-            color: #a1aea5;
-        }
-
-
-        .form-input:focus,
-        .form-select:focus {
-            border-color: var(--green);
-            box-shadow:
-                0 0 0 4px rgba(22,163,74,.09);
-        }
-
-
-        .form-input:focus ~ .input-icon,
-        .form-select:focus ~ .input-icon {
-            color: var(--green);
-        }
-
-
-        .form-select {
-            cursor: pointer;
-            appearance: none;
-            background-image: url(
-                "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23778078'%3E%3Cpath d='M12 16L6 10H18L12 16Z'/%3E%3C/svg%3E"
-            );
-            background-repeat: no-repeat;
-            background-position: right 13px center;
-            background-size: 16px;
-            padding-right: 38px;
-        }
-
-
-        textarea.form-input {
-            min-height: 91px;
-            padding-top: 12px;
+        textarea {
+            min-height: 110px;
             resize: vertical;
         }
 
-
-        .field-help {
-            margin-top: 5px;
-            color: var(--soft);
-            font-size: 9px;
+        .with-unit {
+            padding-right: 54px;
         }
 
-
-        /* =====================================================
-           IMAGE UPLOAD
-        ===================================================== */
-
-        .image-upload {
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 140px;
-            padding: 22px;
-            text-align: center;
-            background: #fbfdfb;
-            border: 2px dashed #cbdccc;
-            border-radius: var(--radius-md);
-            cursor: pointer;
-            transition: var(--transition);
-        }
-
-
-        .image-upload:hover,
-        .image-upload.dragover {
-            background: var(--green-soft);
-            border-color: var(--green);
-        }
-
-
-        .image-upload input {
+        .unit {
             position: absolute;
-            z-index: 4;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            opacity: 0;
-            cursor: pointer;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-soft);
+            font-size: 12px;
+            pointer-events: none;
         }
 
-
-        .upload-icon {
-            width: 40px;
-            height: 40px;
-            display: grid;
-            place-items: center;
-            margin-bottom: 8px;
-            color: var(--green-dark);
-            background: var(--green-soft);
-            border-radius: 50%;
-            font-size: 20px;
-        }
-
-
-        .upload-title {
-            color: var(--green-dark);
-            font-size: 11px;
-            font-weight: 800;
-        }
-
-
-        .upload-subtitle {
-            margin-top: 4px;
-            color: var(--muted);
-            font-size: 9px;
-        }
-
-
-        .file-name {
-            z-index: 5;
-            display: none;
-            max-width: 90%;
-            margin-top: 8px;
-            padding: 6px 9px;
-            overflow: hidden;
-            color: var(--green-dark);
-            background: #f0fdf4;
-            border: 1px solid #bbf7d0;
-            border-radius: 7px;
-            font-size: 9px;
-            font-weight: 800;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-
-        .image-preview {
-            z-index: 5;
-            display: none;
-            max-width: 140px;
-            max-height: 82px;
-            margin-top: 8px;
-            object-fit: cover;
-            border: 3px solid #ffffff;
-            border-radius: 9px;
-            box-shadow: 0 6px 15px rgba(20,83,45,.14);
-        }
-
-
-        .file-error {
-            display: none;
-            margin-top: 6px;
-            color: var(--danger);
-            font-size: 9px;
-            font-weight: 700;
-        }
-
-
-        /* =====================================================
-           SUBMIT BUTTON
-        ===================================================== */
-
-        .submit-area {
-            display: flex;
-            justify-content: flex-end;
-            padding-top: 20px;
-            margin-top: 20px;
-            border-top: 1px solid #edf2ee;
-        }
-
-
-        .submit-button {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 9px;
-            min-width: 190px;
-            padding: 13px 18px;
-            color: #ffffff;
-            background: linear-gradient(
-                135deg,
-                #22c55e,
-                #15803d
-            );
-            border: 0;
-            border-radius: var(--radius-md);
-            box-shadow:
-                0 10px 22px rgba(22,163,74,.24);
-            font-size: 11px;
-            font-weight: 800;
-            cursor: pointer;
-            transition: var(--transition);
-        }
-
-
-        .submit-button:hover {
-            box-shadow:
-                0 15px 28px rgba(22,163,74,.34);
-            transform: translateY(-2px);
-        }
-
-
-        .submit-button:disabled {
-            cursor: wait;
-            opacity: .7;
-            transform: none;
-        }
-
-
-        .submit-button i {
-            font-size: 17px;
-        }
-
-
-        /* =====================================================
-           SUMMARY CARD
-        ===================================================== */
-
-        .summary-card {
-            position: sticky;
-            top: 93px;
-        }
-
-
-        .summary-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-
-        .summary-leaf {
-            width: 38px;
-            height: 38px;
-            display: grid;
-            place-items: center;
-            color: var(--green);
-            background: var(--green-soft);
-            border-radius: 11px;
-            font-size: 20px;
-        }
-
-
-        .summary-title {
-            color: var(--green-dark);
-            font-size: 14px;
-            font-weight: 800;
-        }
-
-
-        .summary-caption {
-            margin-top: 3px;
-            color: var(--muted);
-            font-size: 10px;
-        }
-
-
-        .summary-list {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            margin-top: 24px;
-        }
-
-
-        .summary-row {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-
-        .summary-label {
-            color: var(--muted);
-            font-size: 10px;
-            font-weight: 700;
-        }
-
-
-        .summary-value {
-            color: var(--green-dark);
-            font-size: 11px;
-            font-weight: 800;
-            word-break: break-word;
-        }
-
-
-        .summary-value.empty {
-            color: var(--soft);
-            font-weight: 600;
-        }
-
-
-        .summary-divider {
-            height: 1px;
-            margin: 22px 0;
-            background: var(--border);
-        }
-
-
-        .location-title {
-            display: flex;
-            align-items: center;
-            gap: 7px;
-            color: var(--green-dark);
-            font-size: 11px;
-            font-weight: 800;
-        }
-
-
-        .location-title i {
-            color: var(--green);
-            font-size: 17px;
-        }
-
-
-        .location-address {
-            margin-top: 11px;
-            color: var(--muted);
-            font-size: 10px;
-            line-height: 1.6;
-            word-break: break-word;
-        }
-
-
-        .location-pincode {
-            margin-top: 7px;
-            color: var(--green-dark);
-            font-size: 10px;
-            font-weight: 800;
-        }
-
-
-        .collector-note {
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            padding: 12px;
-            margin-top: 22px;
-            color: var(--green-dark);
-            background: #f0fdf4;
-            border: 1px solid #d7f3dd;
-            border-radius: 11px;
-            font-size: 9px;
+        .helper-text {
+            color: var(--text-soft);
+            font-size: 12px;
             line-height: 1.5;
         }
 
-
-        .collector-note i {
-            flex-shrink: 0;
-            color: var(--green);
-            font-size: 15px;
+        .input-error {
+            color: #c62828;
+            font-size: 12px;
         }
 
+        .upload-box {
+            padding: 16px;
+            border-radius: 14px;
+            border: 1px dashed var(--border);
+            background: #fafdfb;
+            transition: 0.25s ease;
+        }
 
-        /* =====================================================
-           TOAST
-        ===================================================== */
+        .upload-box.dragover {
+            border-color: var(--eco-light);
+            background: #f4fbef;
+        }
+
+        .upload-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .upload-preview {
+            width: 72px;
+            height: 72px;
+            border-radius: 16px;
+            object-fit: cover;
+            background: #fff;
+            border: 1px solid var(--border);
+        }
+
+        .upload-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .mini-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 12px;
+            padding: 9px 12px;
+            border: 1px solid var(--border);
+            background: #fff;
+            color: var(--text-main);
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .mini-btn:hover {
+            border-color: var(--eco-light);
+            color: var(--eco-primary);
+        }
+
+        .side-card {
+            padding: 24px;
+        }
+
+        .tip-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .tip-item {
+            padding: 15px;
+            border-radius: 14px;
+            background: #f8fbfa;
+            border: 1px solid #edf2ef;
+        }
+
+        .tip-item strong {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 13px;
+        }
+
+        .tip-item span {
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 22px;
+        }
+
+        .btn-primary-green,
+        .btn-outline-green {
+            border-radius: 14px;
+            padding: 13px 18px;
+            font-weight: 800;
+            font-size: 13px;
+            transition: 0.25s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary-green {
+            background: var(--eco-primary);
+            color: white;
+            box-shadow: 0 10px 20px rgba(46, 125, 50, 0.18);
+        }
+
+        .btn-primary-green:hover {
+            background: var(--eco-primary-dark);
+            transform: translateY(-1px);
+        }
+
+        .btn-outline-green {
+            border: 1px solid var(--border);
+            background: white;
+            color: var(--text-main);
+        }
+
+        .btn-outline-green:hover {
+            border-color: var(--eco-light);
+            color: var(--eco-primary);
+        }
 
         .toast {
             position: fixed;
-            right: 22px;
-            bottom: 22px;
-            z-index: 500;
+            right: 20px;
+            bottom: 20px;
+            z-index: 1000;
+            min-width: 280px;
+            max-width: 90vw;
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: #e8f7e9;
+            color: #256029;
+            box-shadow: var(--shadow-md);
             display: none;
-            align-items: center;
-            gap: 8px;
-            padding: 12px 15px;
-            color: #ffffff;
-            background: var(--green-dark);
-            border-radius: 10px;
-            box-shadow: 0 15px 35px rgba(20,83,45,.2);
-            font-size: 10px;
-            font-weight: 700;
         }
-
 
         .toast.show {
-            display: flex;
-            animation: toastIn .25s ease;
+            display: block;
         }
 
-
-        .toast.error {
-            background: #b91c1c;
-        }
-
-
-        @keyframes toastIn {
-
-            from {
-                opacity: 0;
-                transform: translateY(12px);
+        @media (max-width: 980px) {
+            .user-page-shell {
+                padding: 24px 18px 36px;
             }
 
-            to {
-                opacity: 1;
-                transform: translateY(0);
+            .content-grid {
+                grid-template-columns: 1fr;
             }
-
-        }
-
-
-        /* =====================================================
-           RESPONSIVE
-        ===================================================== */
-
-        @media (max-width: 900px) {
-
-            .request-layout {
-                grid-template-columns: minmax(0, 1fr);
-            }
-
-
-            .summary-card {
-                position: static;
-            }
-
-
-            .summary-list {
-                display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                column-gap: 22px;
-            }
-
-
-            .location-block,
-            .collector-note,
-            .summary-divider {
-                grid-column: 1 / -1;
-            }
-
-        }
-
-
-        @media (max-width: 720px) {
-
-            .navbar {
-                align-items: center;
-                flex-wrap: wrap;
-                width: calc(100% - 24px);
-                margin-top: 10px;
-                padding: 9px 11px;
-            }
-
-
-            .menu-button {
-                display: grid;
-                margin-left: auto;
-            }
-
-
-            .nav-links {
-                display: none;
-                order: 4;
-                width: 100%;
-                flex-direction: column;
-                align-items: stretch;
-                gap: 4px;
-                padding-top: 10px;
-                margin: 0;
-                border-top: 1px solid var(--border);
-            }
-
-
-            .nav-links.open {
-                display: flex;
-            }
-
-
-            .nav-link {
-                justify-content: flex-start;
-                padding: 11px;
-                font-size: 11px;
-            }
-
-
-            .nav-right {
-                order: 3;
-            }
-
-
-            .logout-button span {
-                display: none;
-            }
-
-
-            .user-name {
-                display: none;
-            }
-
-
-            .page-wrapper {
-                width: calc(100% - 24px);
-                padding-top: 28px;
-            }
-
-
-            .page-header {
-                align-items: center;
-                flex-direction: column;
-                gap: 17px;
-            }
-
-
-            .page-header-content {
-                order: 1;
-            }
-
-
-            .back-link {
-                order: 2;
-                align-self: flex-start;
-            }
-
-        }
-
-
-        @media (max-width: 560px) {
-
-            .card {
-                padding: 21px 17px;
-                border-radius: 18px;
-            }
-
 
             .form-grid {
                 grid-template-columns: 1fr;
-                gap: 17px;
             }
 
-
-            .span-two {
-                grid-column: span 1;
+            .impact-card {
+                flex-direction: column;
+                align-items: flex-start;
             }
 
-
-            .summary-list {
-                display: flex;
-            }
-
-
-            .submit-area {
-                justify-content: stretch;
-            }
-
-
-            .submit-button {
+            .impact-progress-wrap {
                 width: 100%;
+                flex: 1 1 auto;
             }
-
-
-            .page-header h1 {
-                font-size: 28px;
-            }
-
-
-            .page-header p {
-                font-size: 11px;
-            }
-
         }
 
+        @media (max-width: 560px) {
+            .impact-card {
+                padding: 22px 18px;
+            }
+
+            .actions {
+                flex-direction: column;
+            }
+
+            .actions .btn-primary-green,
+            .actions .btn-outline-green {
+                width: 100%;
+            }
+        }
     </style>
-
 </head>
-
 <body>
 
-    <!-- =====================================================
-         NAVBAR
-    ===================================================== -->
-
-    
-
-
-    <!-- =====================================================
-         PAGE
-    ===================================================== -->
-
-    <main class="page-wrapper">
-
-
-        <!-- Page Header -->
-
-        <header class="page-header">
-
-            <a
-                href="dashboard.php"
-                class="back-link"
-            >
-                <i class="ri-arrow-left-line"></i>
-                Back to Dashboard
-            </a>
-
-
-            <div class="page-header-content">
-
-                <h1>
-                    Create Pickup Request
-                </h1>
-
-
-                <p>
-                    Tell us what you want to recycle and where we should collect it.
-                </p>
-
-            </div>
-
-        </header>
-
-
-        <!-- Two-column layout -->
-
-        <div class="request-layout">
-
-
-            <!-- =================================================
-                 LEFT: FORM CARD
-            ================================================= -->
-
-            <section class="card">
-
-                <div class="card-header">
-
-                    <div class="card-header-icon">
-                        <i class="ri-recycle-line"></i>
-                    </div>
-
-
-                    <div>
-
-                        <h2>
-                            Scrap Information
-                        </h2>
-
-
-                        <p>
-                            Provide details about the items you want to recycle.
-                        </p>
-
-                    </div>
-
-                </div>
-
-
-                <form
-                    action="create_request_process.php"
-                    method="POST"
-                    enctype="multipart/form-data"
-                    id="pickupForm"
-                >
-
-                    <div class="form-grid">
-
-
-                        <!-- Scrap type -->
-
-                        <div class="form-group span-two">
-
-                            <label
-                                for="scrap_type"
-                                class="form-label"
-                            >
-                                Scrap Type
-                                <span class="required">*</span>
-                            </label>
-
-
-                            <div class="input-wrapper">
-
-                                <select
-                                    id="scrap_type"
-                                    name="scrap_type"
-                                    class="form-select"
-                                    required
-                                >
-
-                                    <option value="">
-                                        Select scrap type
-                                    </option>
-
-                                    <option value="Paper">
-                                        Paper
-                                    </option>
-
-                                    <option value="Plastic">
-                                        Plastic
-                                    </option>
-
-                                    <option value="Metal">
-                                        Metal
-                                    </option>
-
-                                    <option value="Glass">
-                                        Glass
-                                    </option>
-
-                                    <option value="E-Waste">
-                                        E-Waste
-                                    </option>
-
-                                    <option value="Mixed Waste">
-                                        Mixed Waste
-                                    </option>
-
-                                </select>
-
-
-                                <i class="ri-recycle-line input-icon"></i>
-
-                            </div>
-
-                        </div>
-
-
-                        <!-- Weight -->
-
-                        <div class="form-group span-two">
-
-                            <label
-                                for="scrap_weight"
-                                class="form-label"
-                            >
-                                Estimated Weight
-                                <span class="required">*</span>
-                            </label>
-
-
-                            <div class="input-wrapper">
-
-                                <input
-                                    type="number"
-                                    id="scrap_weight"
-                                    name="scrap_weight"
-                                    class="form-input"
-                                    step="0.01"
-                                    min="0.1"
-                                    max="100000"
-                                    placeholder="Enter weight"
-                                    required
-                                >
-
-
-                                <i class="ri-scales-3-line input-icon"></i>
-
-                            </div>
-
-
-                            <span class="field-help">
-                                Enter the estimated weight in kilograms.
-                            </span>
-
-                        </div>
-
-
-                        <!-- Image -->
-
-                        <div class="form-group span-two">
-
-                            <label
-                                for="scrap_image"
-                                class="form-label"
-                            >
-                                Scrap Image
-                                <span class="optional">
-                                    Optional
-                                </span>
-                            </label>
-
-
-                            <div
-                                class="image-upload"
-                                id="imageUpload"
-                            >
-
-                                <input
-                                    type="file"
-                                    id="scrap_image"
-                                    name="scrap_image"
-                                    accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-                                >
-
-
-                                <div class="upload-icon">
-                                    <i class="ri-camera-3-line"></i>
-                                </div>
-
-
-                                <div class="upload-title">
-                                    Upload Image
-                                </div>
-
-
-                                <div class="upload-subtitle">
-                                    JPG, JPEG, or PNG · Maximum 5 MB
-                                </div>
-
-
-                                <div
-                                    class="file-name"
-                                    id="fileName"
-                                ></div>
-
-
-                                <img
-                                    src=""
-                                    alt="Selected scrap image preview"
-                                    class="image-preview"
-                                    id="imagePreview"
-                                >
-
-                            </div>
-
-
-                            <span
-                                class="file-error"
-                                id="fileError"
-                            ></span>
-
-                        </div>
-
-
-                        <!-- Pickup information heading -->
-
-                        <div class="form-group span-two">
-
-                            <div class="card-header" style="margin: 8px 0 0; padding: 0 0 14px;">
-
-                                <div class="card-header-icon">
-                                    <i class="ri-map-pin-line"></i>
-                                </div>
-
-
-                                <div>
-
-                                    <h2>
-                                        Pickup Information
-                                    </h2>
-
-
-                                    <p>
-                                        Tell us when and where to collect your scrap.
-                                    </p>
-
-                                </div>
-
-                            </div>
-
-                        </div>
-
-
-                        <!-- Address -->
-
-                        <div class="form-group span-two">
-
-                            <label
-                                for="pickup_address"
-                                class="form-label"
-                            >
-                                Pickup Address
-                                <span class="required">*</span>
-                            </label>
-
-
-                            <div class="input-wrapper">
-
-                                <textarea
-                                    id="pickup_address"
-                                    name="pickup_address"
-                                    class="form-input"
-                                    rows="3"
-                                    maxlength="500"
-                                    placeholder="Enter complete address"
-                                    required
-                                ><?= escape_html($userAddress) ?></textarea>
-
-
-                                <i class="ri-map-pin-line input-icon textarea-icon"></i>
-
-                            </div>
-
-                        </div>
-
-
-                        <!-- Pincode -->
-
-                        <div class="form-group span-two">
-
-                            <label
-                                for="pickup_pincode"
-                                class="form-label"
-                            >
-                                Pincode
-                                <span class="required">*</span>
-                            </label>
-
-
-                            <div class="input-wrapper">
-
-                                <input
-                                    type="text"
-                                    id="pickup_pincode"
-                                    name="pickup_pincode"
-                                    class="form-input"
-                                    value="<?= escape_html($userPincode) ?>"
-                                    inputmode="numeric"
-                                    pattern="[0-9]{6}"
-                                    minlength="6"
-                                    maxlength="6"
-                                    placeholder="Enter pincode"
-                                    required
-                                >
-
-
-                                <i class="ri-map-pin-user-line input-icon"></i>
-
-                            </div>
-
-                        </div>
-
-
-                        <!-- Date -->
-
-                        <div class="form-group">
-
-                            <label
-                                for="preferred_pickup_date"
-                                class="form-label"
-                            >
-                                Preferred Date
-                                <span class="required">*</span>
-                            </label>
-
-
-                            <div class="input-wrapper">
-
-                                <input
-                                    type="date"
-                                    id="preferred_pickup_date"
-                                    name="preferred_pickup_date"
-                                    class="form-input"
-                                    min="<?= escape_html($currentDate) ?>"
-                                    required
-                                >
-
-
-                                <i class="ri-calendar-line input-icon"></i>
-
-                            </div>
-
-                        </div>
-
-
-                        <!-- Time -->
-
-                        <div class="form-group">
-
-                            <label
-                                for="pickup_time"
-                                class="form-label"
-                            >
-                                Pickup Time
-                                <span class="required">*</span>
-                            </label>
-
-
-                            <div class="input-wrapper">
-
-                                <input
-                                    type="time"
-                                    id="pickup_time"
-                                    name="pickup_time"
-                                    class="form-input"
-                                    required
-                                >
-
-
-                                <i class="ri-time-line input-icon"></i>
-
-                            </div>
-
-                        </div>
-
-
-                        <!-- Remarks -->
-
-                        <div class="form-group span-two">
-
-                            <label
-                                for="remarks"
-                                class="form-label"
-                            >
-                                Additional Remarks
-                                <span class="optional">
-                                    Optional
-                                </span>
-                            </label>
-
-
-                            <div class="input-wrapper">
-
-                                <textarea
-                                    id="remarks"
-                                    name="remarks"
-                                    class="form-input"
-                                    rows="2"
-                                    maxlength="255"
-                                    placeholder="Optional message..."
-                                ></textarea>
-
-
-                                <i class="ri-chat-1-line input-icon textarea-icon"></i>
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-
-                    <!-- Submit -->
-
-                    <div class="submit-area">
-
-                        <button
-                            type="submit"
-                            class="submit-button"
-                            id="submitButton"
-                        >
-                            <span>
-                                REQUEST PICKUP
-                            </span>
-
-                            <i class="ri-arrow-right-line"></i>
-                        </button>
-
-                    </div>
-
-                </form>
-
-            </section>
-
-
-            <!-- =================================================
-                 RIGHT: SUMMARY CARD
-            ================================================= -->
-
-            <aside class="card summary-card">
-
-                <div class="summary-header">
-
-                    <div class="summary-leaf">
-                        <i class="ri-leaf-line"></i>
-                    </div>
-
-
-                    <div>
-
-                        <div class="summary-title">
-                            Pickup Request
-                        </div>
-
-
-                        <div class="summary-caption">
-                            Live request summary
-                        </div>
-
-                    </div>
-
-                </div>
-
-
-                <div class="summary-list">
-
-
-                    <!-- Summary scrap type -->
-
-                    <div class="summary-row">
-
-                        <span class="summary-label">
-                            Scrap Type
-                        </span>
-
-
-                        <span
-                            class="summary-value empty"
-                            id="summaryScrapType"
-                        >
-                            Not selected
-                        </span>
-
-                    </div>
-
-
-                    <!-- Summary weight -->
-
-                    <div class="summary-row">
-
-                        <span class="summary-label">
-                            Weight
-                        </span>
-
-
-                        <span
-                            class="summary-value empty"
-                            id="summaryWeight"
-                        >
-                            -- kg
-                        </span>
-
-                    </div>
-
-
-                    <!-- Summary date -->
-
-                    <div class="summary-row">
-
-                        <span class="summary-label">
-                            Pickup Date
-                        </span>
-
-
-                        <span
-                            class="summary-value empty"
-                            id="summaryDate"
-                        >
-                            Not selected
-                        </span>
-
-                    </div>
-
-
-                    <!-- Summary time -->
-
-                    <div class="summary-row">
-
-                        <span class="summary-label">
-                            Pickup Time
-                        </span>
-
-
-                        <span
-                            class="summary-value empty"
-                            id="summaryTime"
-                        >
-                            Not selected
-                        </span>
-
-                    </div>
-
-                </div>
-
-
-                <div class="summary-divider"></div>
-
-
-                <!-- Location -->
-
-                <div class="location-block">
-
-                    <div class="location-title">
-
-                        <i class="ri-map-pin-line"></i>
-
-                        <span>
-                            Pickup Location
-                        </span>
-
-                    </div>
-
-
-                    <div
-                        class="location-address"
-                        id="summaryAddress"
-                    >
-                        Address not selected
-                    </div>
-
-
-                    <div
-                        class="location-pincode"
-                        id="summaryPincode"
-                    >
-                        Pincode: --
-                    </div>
-
-                </div>
-
-
-                <div class="summary-divider"></div>
-
-
-                <!-- Collector note -->
-
-                <div class="collector-note">
-
-                    <i class="ri-checkbox-circle-line"></i>
-
-
-                    <span>
-                        Collector will be assigned by the admin based on availability and location.
-                    </span>
-
-                </div>
-
-            </aside>
-
+<div class="user-page-shell">
+    <div class="page-top">
+        <div class="breadcrumb">
+            <a href="dashboard.php"><i class="ri-arrow-left-line"></i> Back</a>
+            <span>/</span>
+            <span>Create Pickup Request</span>
         </div>
 
-    </main>
-
-
-    <!-- Toast -->
-
-    <div
-        class="toast"
-        id="toast"
-        role="status"
-        aria-live="polite"
-    >
-
-        <i
-            class="ri-error-warning-line"
-            id="toastIcon"
-        ></i>
-
-
-        <span id="toastText"></span>
-
+        <h1 class="page-title">Create Pickup Request</h1>
+        <p class="page-desc">Schedule a scrap pickup by entering your scrap details, location, and preferred pickup time. The EcoScrap team will process your request after submission.</p>
     </div>
 
-
-    <script>
-
-        document.addEventListener(
-            'DOMContentLoaded',
-            function () {
-
-
-                // =================================================
-                // MOBILE NAVBAR
-                // =================================================
-
-                const menuButton =
-                    document.getElementById(
-                        'menuButton'
-                    );
-
-                const navLinks =
-                    document.getElementById(
-                        'navLinks'
-                    );
-
-
-                if (
-                    menuButton &&
-                    navLinks
-                ) {
-
-                    menuButton.addEventListener(
-                        'click',
-                        function () {
-
-                            const isOpen =
-                                navLinks.classList.toggle(
-                                    'open'
-                                );
-
-                            menuButton.setAttribute(
-                                'aria-expanded',
-                                isOpen
-                                    ? 'true'
-                                    : 'false'
-                            );
-
-                            menuButton.innerHTML =
-                                isOpen
-                                    ? '<i class="ri-close-line"></i>'
-                                    : '<i class="ri-menu-3-line"></i>';
-                        }
-                    );
-
-
-                    navLinks
-                        .querySelectorAll('a')
-                        .forEach(
-                            function (link) {
-
-                                link.addEventListener(
-                                    'click',
-                                    function () {
-
-                                        if (
-                                            window.innerWidth <= 720
-                                        ) {
-                                            navLinks.classList.remove(
-                                                'open'
-                                            );
-
-                                            menuButton.setAttribute(
-                                                'aria-expanded',
-                                                'false'
-                                            );
-
-                                            menuButton.innerHTML =
-                                                '<i class="ri-menu-3-line"></i>';
-                                        }
-                                    }
-                                );
-                            }
-                        );
-                }
-
-
-                // =================================================
-                // FORM ELEMENTS
-                // =================================================
-
-                const scrapType =
-                    document.getElementById(
-                        'scrap_type'
-                    );
-
-                const scrapWeight =
-                    document.getElementById(
-                        'scrap_weight'
-                    );
-
-                const pickupAddress =
-                    document.getElementById(
-                        'pickup_address'
-                    );
-
-                const pickupPincode =
-                    document.getElementById(
-                        'pickup_pincode'
-                    );
-
-                const pickupDate =
-                    document.getElementById(
-                        'preferred_pickup_date'
-                    );
-
-                const pickupTime =
-                    document.getElementById(
-                        'pickup_time'
-                    );
-
-                const fileInput =
-                    document.getElementById(
-                        'scrap_image'
-                    );
-
-                const imageUpload =
-                    document.getElementById(
-                        'imageUpload'
-                    );
-
-                const imagePreview =
-                    document.getElementById(
-                        'imagePreview'
-                    );
-
-                const fileName =
-                    document.getElementById(
-                        'fileName'
-                    );
-
-                const fileError =
-                    document.getElementById(
-                        'fileError'
-                    );
-
-                const form =
-                    document.getElementById(
-                        'pickupForm'
-                    );
-
-                const submitButton =
-                    document.getElementById(
-                        'submitButton'
-                    );
-
-
-                // Summary elements
-
-                const summaryScrapType =
-                    document.getElementById(
-                        'summaryScrapType'
-                    );
-
-                const summaryWeight =
-                    document.getElementById(
-                        'summaryWeight'
-                    );
-
-                const summaryDate =
-                    document.getElementById(
-                        'summaryDate'
-                    );
-
-                const summaryTime =
-                    document.getElementById(
-                        'summaryTime'
-                    );
-
-                const summaryAddress =
-                    document.getElementById(
-                        'summaryAddress'
-                    );
-
-                const summaryPincode =
-                    document.getElementById(
-                        'summaryPincode'
-                    );
-
-
-                // =================================================
-                // SUMMARY HELPERS
-                // =================================================
-
-                function setSummaryValue(
-                    element,
-                    value,
-                    emptyText
-                ) {
-
-                    const cleanValue =
-                        value.trim();
-
-                    if (
-                        cleanValue === ''
-                    ) {
-                        element.textContent =
-                            emptyText;
-
-                        element.classList.add(
-                            'empty'
-                        );
-
-                        return;
-                    }
-
-                    element.textContent =
-                        cleanValue;
-
-                    element.classList.remove(
-                        'empty'
-                    );
-                }
-
-
-                function formatDate(dateValue) {
-
-                    if (
-                        !dateValue
-                    ) {
-                        return '';
-                    }
-
-                    const parts =
-                        dateValue.split('-');
-
-                    if (
-                        parts.length !== 3
-                    ) {
-                        return dateValue;
-                    }
-
-                    return `${parts[2]}-${parts[1]}-${parts[0]}`;
-                }
-
-
-                function formatTime(timeValue) {
-
-                    if (
-                        !timeValue
-                    ) {
-                        return '';
-                    }
-
-                    const parts =
-                        timeValue.split(':');
-
-                    let hours =
-                        parseInt(parts[0], 10);
-
-                    const minutes =
-                        parts[1] || '00';
-
-                    const suffix =
-                        hours >= 12
-                            ? 'PM'
-                            : 'AM';
-
-                    hours =
-                        hours % 12 || 12;
-
-                    return `${hours}:${minutes} ${suffix}`;
-                }
-
-
-                function updateSummary() {
-
-                    setSummaryValue(
-                        summaryScrapType,
-                        scrapType.value,
-                        'Not selected'
-                    );
-
-
-                    const weight =
-                        scrapWeight.value.trim();
-
-                    setSummaryValue(
-                        summaryWeight,
-                        weight
-                            ? `${weight} kg`
-                            : '',
-                        '-- kg'
-                    );
-
-
-                    setSummaryValue(
-                        summaryDate,
-                        formatDate(
-                            pickupDate.value
-                        ),
-                        'Not selected'
-                    );
-
-
-                    setSummaryValue(
-                        summaryTime,
-                        formatTime(
-                            pickupTime.value
-                        ),
-                        'Not selected'
-                    );
-
-
-                    const address =
-                        pickupAddress.value.trim();
-
-                    if (
-                        address === ''
-                    ) {
-                        summaryAddress.textContent =
-                            'Address not selected';
-
-                        summaryAddress.classList.add(
-                            'empty'
-                        );
-                    } else {
-                        summaryAddress.textContent =
-                            address;
-
-                        summaryAddress.classList.remove(
-                            'empty'
-                        );
-                    }
-
-
-                    const pincode =
-                        pickupPincode.value.trim();
-
-                    summaryPincode.textContent =
-                        pincode
-                            ? `Pincode: ${pincode}`
-                            : 'Pincode: --';
-                }
-
-
-                [
-                    scrapType,
-                    scrapWeight,
-                    pickupAddress,
-                    pickupPincode,
-                    pickupDate,
-                    pickupTime
-                ].forEach(
-                    function (element) {
-
-                        element.addEventListener(
-                            'input',
-                            updateSummary
-                        );
-
-                        element.addEventListener(
-                            'change',
-                            updateSummary
-                        );
-                    }
-                );
-
-
-                // =================================================
-                // PINCODE INPUT
-                // =================================================
-
-                pickupPincode.addEventListener(
-                    'input',
-                    function () {
-
-                        this.value =
-                            this.value
-                                .replace(/\D/g, '')
-                                .slice(0, 6);
-
-                        updateSummary();
-                    }
-                );
-
-
-                // =================================================
-                // IMAGE UPLOAD
-                // =================================================
-
-                const allowedTypes = [
-                    'image/jpeg',
-                    'image/png'
-                ];
-
-                const maxSize =
-                    5 * 1024 * 1024;
-
-
-                function showFileError(message) {
-
-                    fileError.textContent =
-                        message;
-
-                    fileError.style.display =
-                        'block';
-
-                    fileInput.setCustomValidity(
-                        message
-                    );
-                }
-
-
-                function clearFileError() {
-
-                    fileError.textContent =
-                        '';
-
-                    fileError.style.display =
-                        'none';
-
-                    fileInput.setCustomValidity(
-                        ''
-                    );
-                }
-
-
-                function previewFile(file) {
-
-                    clearFileError();
-
-                    imagePreview.style.display =
-                        'none';
-
-                    fileName.style.display =
-                        'none';
-
-                    imagePreview.removeAttribute(
-                        'src'
-                    );
-
-
-                    if (
-                        !file
-                    ) {
-                        return;
-                    }
-
-
-                    if (
-                        !allowedTypes.includes(
-                            file.type
-                        )
-                    ) {
-                        showFileError(
-                            'Please select a JPG, JPEG, or PNG image.'
-                        );
-
-                        fileInput.value =
-                            '';
-
-                        return;
-                    }
-
-
-                    if (
-                        file.size > maxSize
-                    ) {
-                        showFileError(
-                            'Image size must be less than 5 MB.'
-                        );
-
-                        fileInput.value =
-                            '';
-
-                        return;
-                    }
-
-
-                    fileName.textContent =
-                        `Selected: ${file.name}`;
-
-                    fileName.style.display =
-                        'block';
-
-
-                    const reader =
-                        new FileReader();
-
-
-                    reader.onload =
-                        function (event) {
-
-                            imagePreview.src =
-                                event.target.result;
-
-                            imagePreview.style.display =
-                                'block';
-                        };
-
-
-                    reader.readAsDataURL(file);
-                }
-
-
-                fileInput.addEventListener(
-                    'change',
-                    function () {
-
-                        previewFile(
-                            this.files[0] || null
-                        );
-                    }
-                );
-
-
-                [
-                    'dragenter',
-                    'dragover'
-                ].forEach(
-                    function (eventName) {
-
-                        imageUpload.addEventListener(
-                            eventName,
-                            function (event) {
-
-                                event.preventDefault();
-
-                                imageUpload.classList.add(
-                                    'dragover'
-                                );
-                            }
-                        );
-                    }
-                );
-
-
-                [
-                    'dragleave',
-                    'drop'
-                ].forEach(
-                    function (eventName) {
-
-                        imageUpload.addEventListener(
-                            eventName,
-                            function (event) {
-
-                                event.preventDefault();
-
-                                imageUpload.classList.remove(
-                                    'dragover'
-                                );
-                            }
-                        );
-                    }
-                );
-
-
-                imageUpload.addEventListener(
-                    'drop',
-                    function (event) {
-
-                        const droppedFiles =
-                            event.dataTransfer.files;
-
-                        if (
-                            !droppedFiles ||
-                            !droppedFiles.length
-                        ) {
-                            return;
-                        }
-
-
-                        try {
-
-                            const dataTransfer =
-                                new DataTransfer();
-
-                            dataTransfer.items.add(
-                                droppedFiles[0]
-                            );
-
-                            fileInput.files =
-                                dataTransfer.files;
-
-                        } catch (error) {
-                            // Standard file selection remains available.
-                        }
-
-
-                        previewFile(
-                            droppedFiles[0]
-                        );
-                    }
-                );
-
-
-                // =================================================
-                // FORM SUBMIT VALIDATION
-                // =================================================
-
-                form.addEventListener(
-                    'submit',
-                    function (event) {
-
-                        clearFileError();
-
-
-                        const pincode =
-                            pickupPincode.value.trim();
-
-
-                        if (
-                            pincode.length !== 6
-                        ) {
-                            event.preventDefault();
-
-                            pickupPincode.setCustomValidity(
-                                'Please enter a valid 6-digit pincode.'
-                            );
-
-                            pickupPincode.reportValidity();
-
-                            return;
-                        }
-
-
-                        const selectedDate =
-                            pickupDate.value;
-
-
-                        if (
-                            selectedDate
-                        ) {
-
-                            const today =
-                                new Date();
-
-                            today.setHours(
-                                0,
-                                0,
-                                0,
-                                0
-                            );
-
-
-                            const dateParts =
-                                selectedDate
-                                    .split('-')
-                                    .map(Number);
-
-
-                            const selected =
-                                new Date(
-                                    dateParts[0],
-                                    dateParts[1] - 1,
-                                    dateParts[2]
-                                );
-
-
-                            if (
-                                selected < today
-                            ) {
-                                event.preventDefault();
-
-                                showToast(
-                                    'Please select today or a future date.'
-                                );
-
-                                return;
-                            }
-                        }
-
-
-                        submitButton.disabled =
-                            true;
-
-                        submitButton.innerHTML =
-                            '<i class="ri-loader-4-line ri-spin"></i><span>Submitting...</span>';
-                    }
-                );
-
-
-                // =================================================
-                // TOAST
-                // =================================================
-
-                function showToast(message) {
-
-                    const toast =
-                        document.getElementById(
-                            'toast'
-                        );
-
-                    const toastText =
-                        document.getElementById(
-                            'toastText'
-                        );
-
-
-                    toastText.textContent =
-                        message;
-
-                    toast.classList.add(
-                        'show'
-                    );
-
-
-                    setTimeout(
-                        function () {
-
-                            toast.classList.remove(
-                                'show'
-                            );
-
-                        },
-                        3500
-                    );
-                }
-
-
-                // Initial summary
-
-                updateSummary();
-
-            }
-        );
-
-    </script>
-
+    <?php if (!empty($flash)): ?>
+        <div class="user-page-alert">
+            <i class="ri-information-line"></i>
+            <span><?= e($flash) ?></span>
+        </div>
+    <?php endif; ?>
+
+    <section class="impact-card">
+        <div class="impact-info">
+            <p class="eyebrow"><i class="ri-recycle-line"></i> Ready to recycle?</p>
+            <h2>Schedule a convenient scrap pickup</h2>
+            <p>Help keep recyclable materials out of landfills by submitting a pickup request in just a few steps.</p>
+        </div>
+
+        <div class="impact-progress-wrap">
+            <div class="impact-progress-head">
+                <strong>Request</strong>
+                <span>Ready</span>
+            </div>
+            <div class="progress-bar"><span></span></div>
+        </div>
+    </section>
+
+    <div class="content-grid">
+        <div class="card form-card">
+            <h2 class="card-title">Pickup Request Form</h2>
+            <p class="card-desc">Please fill in all required fields carefully. You can optionally upload a scrap image for reference.</p>
+
+            <form action="create_request_process.php" method="POST" enctype="multipart/form-data" id="requestForm" novalidate>
+                <div class="section">
+                    <h3>Scrap Details</h3>
+                    <p class="section-note">Tell us what you want us to collect.</p>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="scrap_type">Scrap Type</label>
+                            <select id="scrap_type" name="scrap_type" required>
+                                <option value="">Select scrap type</option>
+                                <option value="Plastic">Plastic</option>
+                                <option value="Paper">Paper</option>
+                                <option value="Metal">Metal</option>
+                                <option value="Glass">Glass</option>
+                                <option value="E-Waste">E-Waste</option>
+                                <option value="Other">Other</option>
+                            </select>
+                            <span class="input-error" data-error-for="scrap_type"></span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="scrap_weight">Scrap Weight</label>
+                            <div class="field-wrap">
+                                <input type="number" id="scrap_weight" name="scrap_weight" class="with-unit" step="0.1" min="0.1" placeholder="e.g. 5.5" required>
+                                <span class="unit">kg</span>
+                            </div>
+                            <span class="input-error" data-error-for="scrap_weight"></span>
+                        </div>
+
+                        <div class="form-group full">
+                            <label>Scrap Image</label>
+                            <div class="upload-box" id="uploadBox">
+                                <div class="helper-text">Upload a JPG, JPEG, or PNG image up to 5MB.</div>
+
+                                <div class="upload-row">
+                                    <img id="imagePreview" class="upload-preview" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23ecfdf5'/%3E%3Cpath d='M35 80l16-18 12 13 10-12 12 17H35z' fill='%232e7d32'/%3E%3Ccircle cx='45' cy='45' r='8' fill='%2382c843'/%3E%3C/svg%3E" alt="Upload preview">
+                                    <div style="flex:1; min-width:220px;">
+                                        <input type="file" id="scrap_image" name="scrap_image" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+                                        <div class="helper-text" style="margin-top:8px;">Choose an image if you want to show the scrap condition before pickup.</div>
+                                        <div class="upload-actions">
+                                            <label class="mini-btn" for="scrap_image"><i class="ri-upload-2-line"></i> Choose file</label>
+                                            <button type="button" class="mini-btn" id="removeImageBtn"><i class="ri-close-line"></i> Remove</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <span class="input-error" data-error-for="scrap_image"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>Pickup Location</h3>
+                    <p class="section-note">Where should we collect the scrap from?</p>
+
+                    <div class="form-grid">
+                        <div class="form-group full">
+                            <label for="pickup_address">Pickup Address</label>
+                            <textarea id="pickup_address" name="pickup_address" placeholder="Enter the full pickup address" required><?= e($_POST['pickup_address'] ?? $user['address']) ?></textarea>
+                            <span class="input-error" data-error-for="pickup_address"></span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pickup_pincode">Pincode</label>
+                            <input type="text" id="pickup_pincode" name="pickup_pincode" maxlength="6" inputmode="numeric" placeholder="6-digit pincode" value="<?= e($_POST['pickup_pincode'] ?? $user['pincode']) ?>" required>
+                            <span class="input-error" data-error-for="pickup_pincode"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>Pickup Schedule</h3>
+                    <p class="section-note">Choose a preferred date and time for pickup.</p>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="preferred_pickup_date">Preferred Pickup Date</label>
+                            <input type="date" id="preferred_pickup_date" name="preferred_pickup_date" min="<?= e($today) ?>" required>
+                            <span class="input-error" data-error-for="preferred_pickup_date"></span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pickup_time">Preferred Pickup Time</label>
+                            <input type="time" id="pickup_time" name="pickup_time" required>
+                            <span class="input-error" data-error-for="pickup_time"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>Additional Information</h3>
+                    <p class="section-note">Add any instructions that may help the pickup team.</p>
+
+                    <div class="form-grid">
+                        <div class="form-group full">
+                            <label for="remarks">Remarks</label>
+                            <textarea id="remarks" name="remarks" placeholder="Optional instructions, landmark details, or notes"><?= e($_POST['remarks'] ?? '') ?></textarea>
+                            <span class="input-error" data-error-for="remarks"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <a class="btn-outline-green" href="dashboard.php">Cancel</a>
+                    <button class="btn-primary-green" type="submit">
+                        <i class="ri-send-plane-2-line"></i>
+                        Submit Pickup Request
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card side-card">
+            <h2 class="card-title">Helpful Notes</h2>
+            <p class="card-desc">A few quick reminders before you submit.</p>
+
+            <div class="tip-list">
+                <div class="tip-item">
+                    <strong><i class="ri-checkbox-circle-line" style="color:var(--eco-primary); margin-right:6px;"></i> Fill all required fields</strong>
+                    <span>Scrap type, weight, address, pincode, date, and time are required.</span>
+                </div>
+                <div class="tip-item">
+                    <strong><i class="ri-time-line" style="color:var(--eco-primary); margin-right:6px;"></i> Choose a future date</strong>
+                    <span>Your pickup date cannot be earlier than today.</span>
+                </div>
+                <div class="tip-item">
+                    <strong><i class="ri-image-line" style="color:var(--eco-primary); margin-right:6px;"></i> Optional scrap image</strong>
+                    <span>JPG, JPEG, or PNG up to 5MB for easier identification.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const form = document.getElementById('requestForm');
+const imageInput = document.getElementById('scrap_image');
+const imagePreview = document.getElementById('imagePreview');
+const uploadBox = document.getElementById('uploadBox');
+const removeBtn = document.getElementById('removeImageBtn');
+const toast = document.getElementById('toast');
+
+const today = new Date().toISOString().split('T')[0];
+document.getElementById('preferred_pickup_date').min = today;
+
+function showToast(message, type = 'success') {
+    toast.textContent = message;
+    toast.style.background = type === 'success' ? '#e8f7e9' : '#fff4f4';
+    toast.style.color = type === 'success' ? '#256029' : '#a94442';
+    toast.style.border = type === 'success' ? '1px solid #bde5c0' : '1px solid #f3c5c5';
+    toast.classList.add('show');
+    clearTimeout(window.__toastTimer);
+    window.__toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+}
+
+function setError(field, message) {
+    const el = document.querySelector(`[data-error-for="${field}"]`);
+    if (el) el.textContent = message || '';
+}
+
+function clearErrors() {
+    document.querySelectorAll('.input-error').forEach(el => el.textContent = '');
+}
+
+imageInput.addEventListener('change', function () {
+    const file = this.files[0];
+    if (!file) return;
+
+    const validTypes = ['image/jpeg', 'image/png'];
+    if (!validTypes.includes(file.type)) {
+        setError('scrap_image', 'Only JPG, JPEG, and PNG images are allowed.');
+        this.value = '';
+        return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+        setError('scrap_image', 'Image size must be below 5MB.');
+        this.value = '';
+        return;
+    }
+
+    setError('scrap_image', '');
+
+    const reader = new FileReader();
+    reader.onload = function (event) {
+        imagePreview.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+});
+
+removeBtn.addEventListener('click', function () {
+    imageInput.value = '';
+    imagePreview.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23ecfdf5'/%3E%3Cpath d='M35 80l16-18 12 13 10-12 12 17H35z' fill='%232e7d32'/%3E%3Ccircle cx='45' cy='45' r='8' fill='%2382c843'/%3E%3C/svg%3E";
+    setError('scrap_image', '');
+});
+
+document.getElementById('pickup_pincode').addEventListener('input', function () {
+    this.value = this.value.replace(/\D/g, '').slice(0, 6);
+});
+
+uploadBox.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    uploadBox.classList.add('dragover');
+});
+uploadBox.addEventListener('dragleave', function () {
+    uploadBox.classList.remove('dragover');
+});
+uploadBox.addEventListener('drop', function (e) {
+    e.preventDefault();
+    uploadBox.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+        imageInput.files = e.dataTransfer.files;
+        imageInput.dispatchEvent(new Event('change'));
+    }
+});
+
+form.addEventListener('submit', function (e) {
+    clearErrors();
+
+    const scrapType = document.getElementById('scrap_type').value.trim();
+    const scrapWeight = parseFloat(document.getElementById('scrap_weight').value);
+    const address = document.getElementById('pickup_address').value.trim();
+    const pincode = document.getElementById('pickup_pincode').value.trim();
+    const date = document.getElementById('preferred_pickup_date').value;
+    const time = document.getElementById('pickup_time').value;
+    const file = imageInput.files[0];
+
+    let hasError = false;
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    if (!scrapType) { setError('scrap_type', 'Please select a scrap type.'); hasError = true; }
+    if (!scrapWeight || scrapWeight <= 0) { setError('scrap_weight', 'Enter a positive scrap weight.'); hasError = true; }
+    if (!address) { setError('pickup_address', 'Pickup address is required.'); hasError = true; }
+    if (!/^[0-9]{6}$/.test(pincode)) { setError('pickup_pincode', 'Pincode must be 6 digits.'); hasError = true; }
+    if (!date) { setError('preferred_pickup_date', 'Pickup date is required.'); hasError = true; }
+    else if (date < todayStr) { setError('preferred_pickup_date', 'Pickup date cannot be in the past.'); hasError = true; }
+    if (!time) { setError('pickup_time', 'Pickup time is required.'); hasError = true; }
+
+    if (file) {
+        const validTypes = ['image/jpeg', 'image/png'];
+        if (!validTypes.includes(file.type)) {
+            setError('scrap_image', 'Only JPG, JPEG, and PNG images are allowed.');
+            hasError = true;
+        } else if (file.size > 5 * 1024 * 1024) {
+            setError('scrap_image', 'Image size must be below 5MB.');
+            hasError = true;
+        }
+    }
+
+    if (hasError) {
+        e.preventDefault();
+        showToast('Please correct the highlighted fields.', 'error');
+    }
+});
+</script>
 </body>
-
 </html>

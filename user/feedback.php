@@ -2,6 +2,7 @@
 session_start();
 require_once "../includes/db.php";
 require_once "../includes/functions.php";
+require_once "navbar.php";
 
 if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== "User") {
     redirect("../login.php");
@@ -90,7 +91,7 @@ if (!empty($activity['collector_id'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Leave Feedback | EcoScrap</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -150,10 +151,20 @@ if (!empty($activity['collector_id'])) {
             margin-bottom: 20px;
         }
     </style>
+    <link rel="stylesheet" href="../assets/css/user.css">
 </head>
 <body>
-    <div class="container">
-        <div class="feedback-card">
+    <?php ecoscrap_render_user_navbar('feedback.php'); ?>
+    <main class="user-page-shell">
+        <div class="user-page-heading">
+            <?php ecoscrap_render_user_back_button(); ?>
+            <div class="user-page-heading-copy">
+                <h1>Share your feedback</h1>
+                <p>Your review helps EcoScrap improve every collection.</p>
+            </div>
+        </div>
+        <div class="container">
+            <div class="feedback-card">
             <div class="success-icon">
                 <i class="ri-checkbox-circle-fill"></i>
             </div>
@@ -190,7 +201,8 @@ if (!empty($activity['collector_id'])) {
                 <button type="submit" class="btn-submit">Submit Review</button>
                 <a href="history.php" class="btn btn-link text-muted mt-3">Cancel</a>
             </form>
+            </div>
         </div>
-    </div>
+    </main>
 </body>
 </html>

@@ -1,0 +1,42 @@
+# ==============================
+# EcoScrap - Git Ignore
+# ==============================
+
+# Uploaded/generated files
+uploads/*
+!uploads/.gitkeep
+
+# QR codes
+uploads/qr/*
+!uploads/qr/.gitkeep
+
+# Scrap images
+uploads/scrap/*
+!uploads/scrap/.gitkeep
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Database dumps
+*.sql
+*.sql.gz
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / editor files
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp

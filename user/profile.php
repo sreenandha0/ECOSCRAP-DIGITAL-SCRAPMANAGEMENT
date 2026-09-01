@@ -1,782 +1,833 @@
-<?php
+﻿<?php
+session_set_cookie_params([
+    "lifetime" => 0,
+    "path" => "/",
+    "secure" => !empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off",
+    "httponly" => true,
+    "samesite" => "Lax"
+]);
 session_start();
+
 require_once "../includes/db.php";
+require_once "../includes/csrf.php";
 
-if (!isset($_SESSION['user_id'])) {
+if (!isset($_SESSION["role"], $_SESSION["user_id"]) || $_SESSION["role"] !== "User") {
     header("Location: ../login.php");
-    exit();
+    exit;
 }
 
-$user_id = $_SESSION['user_id'];
+$userId = filter_var($_SESSION["user_id"], FILTER_VALIDATE_INT, [
+    "options" => ["min_range" => 1]
+]);
 
-// Fetch User Profile Information
-$stmt = $conn->prepare("SELECT * FROM user WHERE user_id = ?");
-$stmt->bind_param("i", $user_id);
-$stmt->execute();
-$result = $stmt->get_result();
-
-if ($result->num_rows === 0) {
-    die("User not found.");
+if ($userId === false) {
+    header("Location: ../login.php");
+    exit;
 }
 
-$user = $result->fetch_assoc();
-$stmt->close();
+function e($value): string {
+    return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, "UTF-8");
+}
 
-// Dynamic Database Fetch: Count Completed Pickups & Total Recycled Weight
-$activity_stmt = $conn->prepare("
-    SELECT 
-        COUNT(*) AS total_pickups, 
-        IFNULL(SUM(scrap_weight), 0) AS total_recycled 
-    FROM activity 
-    WHERE user_id = ? AND status = 'Completed'
-");
-$activity_stmt->bind_param("i", $user_id);
-$activity_stmt->execute();
-$activity_result = $activity_stmt->get_result()->fetch_assoc();
-$activity_stmt->close();
+function profileImageUrl($profileImage): string {
+    $filename = basename((string)$profileImage);
+    $path = __DIR__ . "/../uploads/profile/" . $filename;
 
-$completed_pickups = $activity_result['total_pickups'] ?? 0;
-$total_recycled_kg = round($activity_result['total_recycled'], 2);
+    if ($filename !== "" && is_file($path)) {
+        return "../uploads/profile/" . rawurlencode($filename);
+    }
 
-// Profile Image Fallback
-$image = (!empty($user['profile_image']) && file_exists("../uploads/profile/" . $user['profile_image']))
-    ? "../uploads/profile/" . htmlspecialchars($user['profile_image'], ENT_QUOTES, 'UTF-8')
-    : "../assets/images/default-user.png";
+    return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 132 132'%3E%3Ccircle cx='66' cy='66' r='66' fill='%23d1fae5'/%3E%3Ccircle cx='66' cy='52' r='23' fill='%23047857'/%3E%3Cpath d='M25 117c5-25 20-37 41-37s36 12 41 37' fill='%23047857'/%3E%3C/svg%3E";
+}
 
-// Profile Completion Score Calculation
-$track_fields = ['name', 'email', 'phone', 'place', 'district', 'state', 'pincode', 'address', 'profile_image'];
-$filled_count = 0;
-foreach ($track_fields as $field) {
-    if (!empty($user[$field])) {
-        $filled_count++;
+function removeOldProfileImage($profileImage): void {
+    $filename = basename((string)$profileImage);
+    $path = __DIR__ . "/../uploads/profile/" . $filename;
+
+    if ($filename !== "" && is_file($path)) {
+        @unlink($path);
     }
 }
-$completion_score = round(($filled_count / count($track_fields)) * 100);
+
+$stmt = $conn->prepare("SELECT user_id, name, email, password, phone, profile_image, address, place, district, state, pincode, created_at FROM user WHERE user_id=? LIMIT 1");
+$stmt->bind_param("i", $userId);
+$stmt->execute();
+$user = $stmt->get_result()->fetch_assoc();
+$stmt->close();
+
+if (!$user) {
+    header("Location: ../logout.php");
+    exit;
+}
+
+$errors = [];
+$success = $_SESSION["profile_success"] ?? "";
+unset($_SESSION["profile_success"]);
+
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    verifyCsrfToken();
+
+    if (isset($_POST["update_profile"])) {
+        $name = trim((string)($_POST["name"] ?? ""));
+        $email = trim((string)($_POST["email"] ?? ""));
+        $phone = trim((string)($_POST["phone"] ?? ""));
+        $address = trim((string)($_POST["address"] ?? ""));
+        $place = trim((string)($_POST["place"] ?? ""));
+        $district = trim((string)($_POST["district"] ?? ""));
+        $state = trim((string)($_POST["state"] ?? ""));
+        $pincode = trim((string)($_POST["pincode"] ?? ""));
+
+        foreach ([
+            "name" => $name,
+            "email" => $email,
+            "phone" => $phone,
+            "address" => $address,
+            "place" => $place,
+            "district" => $district,
+            "state" => $state,
+            "pincode" => $pincode
+        ] as $field => $value) {
+            if ($value === "") {
+                $errors[$field] = ucfirst($field) . " is required.";
+            }
+        }
+
+        if (!isset($errors["email"]) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors["email"] = "Enter a valid email address.";
+        }
+
+        if (!isset($errors["phone"]) && !preg_match("/^[0-9+() .-]{7,20}$/", $phone)) {
+            $errors["phone"] = "Enter a valid phone number.";
+        }
+
+        if (!isset($errors["pincode"]) && !preg_match("/^[0-9]{4,10}$/", $pincode)) {
+            $errors["pincode"] = "Enter a valid pincode.";
+        }
+
+        if (!isset($errors["email"])) {
+            $check = $conn->prepare("SELECT user_id FROM user WHERE email=? AND user_id!=? LIMIT 1");
+            $check->bind_param("si", $email, $userId);
+            $check->execute();
+            if ($check->get_result()->num_rows > 0) {
+                $errors["email"] = "This email is already used by another account.";
+            }
+            $check->close();
+        }
+
+        $newImage = (string)($user["profile_image"] ?? "");
+        $uploadedPath = "";
+
+        if (isset($_FILES["profile_image"]) && $_FILES["profile_image"]["error"] !== UPLOAD_ERR_NO_FILE) {
+            $file = $_FILES["profile_image"];
+            $allowedMime = ["image/jpeg" => "jpg", "image/png" => "png"];
+
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime = $finfo ? finfo_file($finfo, $file["tmp_name"]) : false;
+            if ($finfo) {
+                finfo_close($finfo);
+            }
+
+            if ($file["error"] !== UPLOAD_ERR_OK || !isset($allowedMime[$mime])) {
+                $errors["profile_image"] = "Only JPG, JPEG, and PNG images are allowed.";
+            } elseif ($file["size"] > 2 * 1024 * 1024 || !is_uploaded_file($file["tmp_name"])) {
+                $errors["profile_image"] = "Image size must be under 2 MB.";
+            } else {
+                $directory = __DIR__ . "/../uploads/profile/";
+                $filename = "profile_" . $userId . "_" . bin2hex(random_bytes(12)) . "." . $allowedMime[$mime];
+
+                if (!is_dir($directory) && !mkdir($directory, 0775, true)) {
+                    $errors["profile_image"] = "Could not prepare the image directory.";
+                } elseif (move_uploaded_file($file["tmp_name"], $directory . $filename)) {
+                    $newImage = $filename;
+                    $uploadedPath = $directory . $filename;
+                } else {
+                    $errors["profile_image"] = "Could not save the uploaded image.";
+                }
+            }
+        }
+
+        if (!$errors) {
+            $update = $conn->prepare("UPDATE user SET name=?,email=?,phone=?,profile_image=?,address=?,place=?,district=?,state=?,pincode=? WHERE user_id=?");
+            $update->bind_param("sssssssssi", $name, $email, $phone, $newImage, $address, $place, $district, $state, $pincode, $userId);
+
+            if ($update->execute()) {
+                if ($newImage !== ($user["profile_image"] ?? "")) {
+                    removeOldProfileImage($user["profile_image"] ?? "");
+                }
+
+                $_SESSION["name"] = $name;
+                $_SESSION["profile_success"] = "Profile updated successfully.";
+                header("Location: profile.php");
+                exit;
+            }
+
+            if ($uploadedPath !== "") {
+                @unlink($uploadedPath);
+            }
+
+            $errors["general"] = "Could not update your profile.";
+            $update->close();
+        }
+    }
+
+    if (isset($_POST["change_password"])) {
+        $current = (string)($_POST["current_password"] ?? "");
+        $new = (string)($_POST["new_password"] ?? "");
+        $confirm = (string)($_POST["confirm_password"] ?? "");
+
+        if ($current === "") {
+            $errors["current_password"] = "Current password is required.";
+        }
+        if (strlen($new) < 6) {
+            $errors["new_password"] = "New password must be at least 6 characters.";
+        }
+        if ($new !== $confirm) {
+            $errors["confirm_password"] = "Passwords do not match.";
+        }
+
+        if (!$errors && !password_verify($current, $user["password"])) {
+            $errors["current_password"] = "Current password is incorrect.";
+        }
+
+        if (!$errors) {
+            $hash = password_hash($new, PASSWORD_DEFAULT);
+            $passwordStmt = $conn->prepare("UPDATE user SET password=? WHERE user_id=?");
+            $passwordStmt->bind_param("si", $hash, $userId);
+
+            if ($passwordStmt->execute()) {
+                $_SESSION["profile_success"] = "Password changed successfully.";
+                header("Location: profile.php");
+                exit;
+            }
+
+            $errors["general"] = "Could not change your password.";
+            $passwordStmt->close();
+        }
+    }
+}
+
+$profileImage = profileImageUrl($user["profile_image"]);
+$createdAt = !empty($user["created_at"]) ? date("d M Y", strtotime($user["created_at"])) : "Not available";
 ?>
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>User Dashboard - EcoScrap</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>EcoScrap | My Profile</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet">
 
-<style>
-:root {
-  --primary: #10B981;
-  --primary-glow: rgba(16, 185, 129, 0.25);
-  --secondary: #047857;
-  --accent: #0EA5E9;
-  --accent-glow: rgba(14, 165, 233, 0.2);
-  --danger: #EF4444;
-  
-  --bg-color: #F8FAFC;
-  --surface: rgba(255, 255, 255, 0.8);
-  --surface-solid: #FFFFFF;
-  --surface-border: rgba(15, 23, 42, 0.08);
-  
-  --text-main: #0F172A;
-  --text-muted: #64748B;
-  
-  --font-main: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --transition-fast: all 0.2s ease;
-  --transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-  --mouse-x: 50%;
-  --mouse-y: 50%;
-}
+    <style>
+        :root {
+            --eco-light: #82c843;
+            --eco-primary: #2e7d32;
+            --eco-primary-dark: #236128;
+            --eco-dark: #004d40;
+            --eco-accent: #00b4d8;
+            --body-bg: #f1f5f4;
+            --text-main: #16342f;
+            --text-muted: #64748b;
+            --text-soft: #94a3b8;
+            --border: #e6eeeb;
+            --white: #ffffff;
+            --shadow-sm: 0 8px 25px rgba(22, 52, 47, 0.06);
+            --shadow-md: 0 18px 45px rgba(22, 52, 47, 0.10);
+            --radius-lg: 24px;
+            --radius-md: 16px;
+            --radius-sm: 12px;
+            --spring: cubic-bezier(0.16, 1, 0.3, 1);
+        }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-body {
-  font-family: var(--font-main);
-  background-color: var(--bg-color);
-  color: var(--text-main);
-  line-height: 1.6;
-  padding-top: 100px;
-  padding-bottom: 60px;
-  -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
-}
+        body {
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at 90% 0%, rgba(130, 200, 67, 0.14), transparent 30%),
+                var(--body-bg);
+            color: var(--text-main);
+            font-family: "DM Sans", sans-serif;
+        }
 
-.bg-ambient {
-  position: fixed;
-  top: 0; left: 0; width: 100vw; height: 100vh;
-  z-index: -1;
-  overflow: hidden;
-  pointer-events: none;
-}
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
 
-.ambient-blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.45;
-  animation: floatBlob 18s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
-}
+        button {
+            border: 0;
+            cursor: pointer;
+            font: inherit;
+        }
 
-.blob-1 {
-  top: -10%; right: -5%; width: 500px; height: 500px;
-  background: var(--primary-glow);
-}
+        .user-page-shell {
+            min-height: calc(100vh - 76px);
+            padding: 34px 5% 52px;
+            background:
+                radial-gradient(circle at 90% 0%, rgba(130, 200, 67, 0.14), transparent 30%),
+                var(--body-bg);
+        }
 
-.blob-2 {
-  bottom: -10%; left: -5%; width: 600px; height: 600px;
-  background: var(--accent-glow);
-  animation-delay: -9s;
-}
+        .user-page-heading {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+            max-width: 1520px;
+            margin: 0 auto 24px;
+        }
 
-@keyframes floatBlob {
-  0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(-60px, 40px) scale(1.1); }
-}
+        .user-page-heading-copy {
+            margin-top: 14px;
+        }
 
-.container {
-  max-width: 1140px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
+        .user-page-heading h1 {
+            margin: 0 0 7px;
+            color: var(--eco-dark);
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: clamp(26px, 3vw, 36px);
+            letter-spacing: -0.7px;
+        }
 
-.glass-card {
-  background: var(--surface);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--surface-border);
-  border-radius: 20px;
-  box-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.05);
-  transition: var(--transition);
-}
+        .user-page-heading p {
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 14px;
+            line-height: 1.6;
+        }
 
-.mouse-glow {
-  position: relative;
-  overflow: hidden;
-}
+        .user-page-card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+        }
 
-.mouse-glow::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: radial-gradient(
-    500px circle at var(--mouse-x) var(--mouse-y),
-    rgba(16, 185, 129, 0.08),
-    transparent 50%
-  );
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
+        .user-page-alert {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 13px 15px;
+            border: 1px solid #bde5c0;
+            border-radius: var(--radius-sm);
+            background: #effaf0;
+            color: #256029;
+            font-size: 13px;
+            font-weight: 600;
+        }
 
-.mouse-glow:hover::before {
-  opacity: 1;
-}
+        .impact-card {
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 25px;
+            min-height: 150px;
+            margin-bottom: 25px;
+            padding: 27px 31px;
+            border-radius: var(--radius-lg);
+            background: linear-gradient(120deg, rgba(0, 77, 64, 0.97), rgba(46, 125, 50, 0.95));
+            color: white;
+            box-shadow: var(--shadow-md);
+        }
 
-.mouse-glow > * {
-  position: relative;
-  z-index: 1;
-}
+        .impact-card::before {
+            position: absolute;
+            top: -75px;
+            right: 13%;
+            width: 210px;
+            height: 210px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 50%;
+            content: "";
+        }
 
-.navbar {
-  position: fixed;
-  top: 0; left: 0; width: 100%;
-  z-index: 1000;
-  padding: 16px 0;
-  background: rgba(248, 250, 252, 0.8);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--surface-border);
-}
+        .impact-card::after {
+            position: absolute;
+            top: -35px;
+            right: 5%;
+            width: 180px;
+            height: 180px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 50%;
+            content: "";
+        }
 
-.nav-container {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  max-width: 1140px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
+        .impact-info {
+            position: relative;
+            z-index: 2;
+            max-width: 640px;
+        }
 
-.logo {
-  font-weight: 800;
-  font-size: 20px;
-  color: var(--text-main);
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  letter-spacing: -0.03em;
-}
+        .impact-info .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 10px;
+            color: var(--eco-light);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+        }
 
-.logo-mark {
-  width: 14px;
-  height: 14px;
-  background: var(--primary);
-  border-radius: 4px;
-  box-shadow: 0 0 12px var(--primary-glow);
-}
+        .impact-info h2 {
+            margin-bottom: 7px;
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: 20px;
+        }
 
-.nav-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
+        .impact-info p {
+            max-width: 500px;
+            color: rgba(255,255,255,0.68);
+            font-size: 12px;
+        }
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 18px;
-  border-radius: 12px;
-  font-weight: 600;
-  font-size: 14px;
-  text-decoration: none;
-  transition: var(--transition);
-  cursor: pointer;
-  border: 1px solid transparent;
-}
+        .impact-progress-wrap {
+            position: relative;
+            z-index: 2;
+            width: 220px;
+            flex: 0 0 220px;
+        }
 
-.btn-primary {
-  background: var(--text-main);
-  color: white;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
-}
+        .impact-progress-head {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: rgba(255,255,255,0.75);
+            font-size: 11px;
+            font-weight: 600;
+        }
 
-.btn-primary:hover {
-  background: var(--primary);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px var(--primary-glow);
-}
+        .impact-progress-head strong {
+            color: white;
+        }
 
-.btn-ghost {
-  background: white;
-  color: var(--text-main);
-  border: 1px solid var(--surface-border);
-}
+        .progress-bar {
+            height: 9px;
+            overflow: hidden;
+            border-radius: 9px;
+            background: rgba(255,255,255,0.18);
+        }
 
-.btn-ghost:hover {
-  background: var(--bg-color);
-  border-color: var(--text-main);
-  transform: translateY(-2px);
-}
+        .progress-bar span {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border-radius: inherit;
+            background: var(--eco-light);
+        }
 
-.user-dropdown-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: white;
-  border: 1px solid var(--surface-border);
-  padding: 4px 12px 4px 6px;
-  border-radius: 30px;
-  cursor: pointer;
-  font-family: var(--font-main);
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--text-main);
-  transition: var(--transition);
-}
+        .profile-grid {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 20px;
+            max-width: 1520px;
+            margin: 0 auto;
+        }
 
-.user-dropdown-btn:hover {
-  border-color: var(--text-main);
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
-}
+        .section-card {
+            padding: 24px;
+        }
 
-.nav-avatar-sm {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1.5px solid var(--primary);
-}
+        .section-card h3 {
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: 18px;
+            margin-bottom: 8px;
+        }
 
-.dropdown-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 10px);
-  width: 200px;
-  background: white;
-  border: 1px solid var(--surface-border);
-  border-radius: 16px;
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.1);
-  padding: 8px;
-  display: none;
-  flex-direction: column;
-  z-index: 1001;
-  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
+        .section-desc {
+            color: var(--text-muted);
+            font-size: 13px;
+            margin-bottom: 20px;
+        }
 
-.dropdown-menu.show { display: flex; }
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
 
-.dropdown-item {
-  padding: 10px 14px;
-  text-decoration: none;
-  color: var(--text-main);
-  font-size: 13px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border-radius: 10px;
-  transition: var(--transition-fast);
-}
+        .form-group {
+            display: grid;
+            gap: 8px;
+        }
 
-.dropdown-item:hover {
-  background: rgba(16, 185, 129, 0.08);
-  color: var(--primary);
-}
+        .form-group.full {
+            grid-column: 1 / -1;
+        }
 
-.dropdown-item.danger:hover {
-  background: rgba(239, 68, 68, 0.08);
-  color: var(--danger);
-}
+        label {
+            color: var(--text-main);
+            font-size: 13px;
+            font-weight: 700;
+        }
 
-.hero-card {
-  padding: 36px;
-  margin-bottom: 24px;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 28px;
-  animation: fadeInScale 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
+        input, textarea {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 13px 14px;
+            background: #fff;
+            color: var(--text-main);
+            font: inherit;
+            transition: 0.25s ease;
+        }
 
-.avatar-wrapper {
-  position: relative;
-  width: 105px;
-  height: 105px;
-}
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--eco-light);
+            box-shadow: 0 0 0 4px rgba(130, 200, 67, 0.12);
+        }
 
-.avatar-frame {
-  width: 100%; height: 100%;
-  border-radius: 50%;
-  padding: 3px;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  box-shadow: 0 8px 24px var(--primary-glow);
-}
+        .input-error {
+            color: #c62828;
+            font-size: 12px;
+            margin-top: -2px;
+        }
 
-.avatar-frame img {
-  width: 100%; height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-  background: white;
-  border: 3px solid white;
-}
+        .helper-text {
+            color: var(--text-soft);
+            font-size: 12px;
+            line-height: 1.5;
+        }
 
-.status-online {
-  position: absolute;
-  bottom: 4px; right: 4px;
-  width: 16px; height: 16px;
-  border-radius: 50%;
-  background: var(--primary);
-  border: 3px solid white;
-  box-shadow: 0 0 10px var(--primary);
-}
+        .actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 22px;
+        }
 
-.hero-meta h1 {
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  margin-bottom: 6px;
-}
+        .btn-primary-green,
+        .btn-outline-green {
+            border-radius: 14px;
+            padding: 13px 18px;
+            font-weight: 800;
+            font-size: 13px;
+            transition: 0.25s ease;
+        }
 
-.badge-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: #d1fae5;
-  color: #047857;
-  font-weight: 700;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-}
+        .btn-primary-green {
+            background: var(--eco-primary);
+            color: white;
+            box-shadow: 0 10px 20px rgba(46, 125, 50, 0.18);
+        }
 
-.badge-pulse {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: #047857;
-  animation: pulse 2s infinite;
-}
+        .btn-primary-green:hover {
+            background: var(--eco-primary-dark);
+            transform: translateY(-1px);
+        }
 
-@keyframes pulse {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(4, 120, 87, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(4, 120, 87, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(4, 120, 87, 0); }
-}
+        .btn-outline-green {
+            border: 1px solid var(--border);
+            background: white;
+            color: var(--text-main);
+        }
 
-.completion-ring-box {
-  text-align: right;
-  background: rgba(255, 255, 255, 0.6);
-  padding: 16px 20px;
-  border-radius: 16px;
-  border: 1px solid var(--surface-border);
-}
+        .btn-outline-green:hover {
+            border-color: var(--eco-light);
+            color: var(--eco-primary);
+        }
 
-.progress-bar-bg {
-  width: 140px; height: 8px;
-  background: #E2E8F0;
-  border-radius: 10px;
-  overflow: hidden;
-  margin-top: 8px;
-}
+        .security-list {
+            display: grid;
+            gap: 12px;
+        }
 
-.progress-bar-fill {
-  height: 100%;
-  width: <?= $completion_score ?>%;
-  background: linear-gradient(90deg, var(--primary), var(--accent));
-  border-radius: 10px;
-  transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
+        .security-item {
+            padding: 15px;
+            border-radius: 14px;
+            background: #f8fbfa;
+            border: 1px solid #edf2ef;
+        }
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 18px;
-  margin-bottom: 28px;
-  animation: slideUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
+        .security-item strong {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 13px;
+        }
 
-.stat-card {
-  padding: 20px 24px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
+        .security-item span {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
 
-.stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 30px -10px rgba(15, 23, 42, 0.08);
-  border-color: rgba(16, 185, 129, 0.3);
-}
+        .upload-preview {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 12px;
+            padding: 14px;
+            border: 1px dashed var(--border);
+            border-radius: 14px;
+            background: #fafdfb;
+        }
 
-.stat-icon {
-  width: 48px; height: 48px;
-  border-radius: 14px;
-  display: flex; align-items: center; justify-content: center;
-  background: #ecfdf5;
-  color: var(--primary);
-  flex-shrink: 0;
-}
+        .upload-preview img {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            object-fit: cover;
+            background: #fff;
+        }
 
-.stat-value {
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
+        .toast {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            z-index: 1000;
+            min-width: 280px;
+            max-width: 90vw;
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: #e8f7e9;
+            color: #256029;
+            box-shadow: var(--shadow-md);
+            display: none;
+        }
 
-.stat-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-weight: 600;
-  text-transform: uppercase;
-}
+        .toast.show {
+            display: block;
+        }
 
-.cards-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 24px;
-  animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
+        @media (max-width: 900px) {
+            .user-page-shell {
+                padding: 24px 18px 36px;
+            }
 
-.dashboard-card {
-  padding: 28px;
-  display: flex;
-  flex-direction: column;
-}
+            .profile-grid {
+                grid-template-columns: 1fr;
+            }
 
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--surface-border);
-}
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
 
-.card-title {
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
+            .impact-card {
+                flex-direction: column;
+                align-items: flex-start;
+            }
 
-.info-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
+            .impact-progress-wrap {
+                width: 100%;
+                flex: 1 1 auto;
+            }
+        }
 
-.info-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
+        @media (max-width: 560px) {
+            .user-page-heading {
+                display: block;
+            }
 
-.info-item label {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
+            .actions {
+                flex-direction: column;
+            }
 
-.info-item span {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-main);
-  background: white;
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--surface-border);
-}
+            .actions .btn-primary-green,
+            .actions .btn-outline-green {
+                width: 100%;
+                text-align: center;
+            }
 
-@keyframes fadeInScale {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (max-width: 960px) {
-  .hero-card { grid-template-columns: auto 1fr; }
-  .completion-ring-box { grid-column: 1 / -1; text-align: left; }
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  .cards-grid { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 580px) {
-  .hero-card { grid-template-columns: 1fr; text-align: center; }
-  .avatar-wrapper { margin: 0 auto; }
-  .stats-grid { grid-template-columns: 1fr; }
-  body { padding-top: 80px; }
-}
-</style>
+            .impact-card {
+                padding: 22px 18px;
+            }
+        }
+    </style>
 </head>
 <body>
 
-<div class="bg-ambient">
-  <div class="ambient-blob blob-1"></div>
-  <div class="ambient-blob blob-2"></div>
+<div class="user-page-shell">
+    <div class="user-page-heading">
+        <div class="user-page-heading-copy">
+            <h1>My Profile</h1>
+            <p>Manage your personal details, update your profile image, and change your password securely.</p>
+        </div>
+    </div>
+
+    <?php if ($success): ?>
+        <div class="user-page-alert">
+            <i class="ri-checkbox-circle-line"></i>
+            <span><?= e($success) ?></span>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!empty($errors["general"])): ?>
+        <div class="user-page-alert" style="border-color:#f3c5c5;background:#fff4f4;color:#a94442;">
+            <i class="ri-error-warning-line"></i>
+            <span><?= e($errors["general"]) ?></span>
+        </div>
+    <?php endif; ?>
+
+    <section class="impact-card">
+        <div class="impact-info">
+            <p class="eyebrow"><i class="ri-shield-user-line"></i> Account profile</p>
+            <h2><?= e($user["name"]) ?></h2>
+            <p><?= e($user["email"]) ?> • <?= e($user["phone"]) ?></p>
+            <p>Member since <?= e($createdAt) ?></p>
+        </div>
+
+        <div class="impact-progress-wrap">
+            <div class="impact-progress-head">
+                <strong>Profile</strong>
+                <span>Complete</span>
+            </div>
+            <div class="progress-bar">
+                <span></span>
+            </div>
+        </div>
+    </section>
+
+    <div class="profile-grid">
+        <div>
+            <div class="user-page-card section-card">
+                <h3>Personal Information</h3>
+                <p class="section-desc">Update your account details below. These values are loaded from your profile and saved back to the same user record.</p>
+
+                <form method="post" enctype="multipart/form-data" id="profileForm">
+                    <input type="hidden" name="csrf_token" value="<?= e(generateCsrfToken()) ?>">
+                    <input type="hidden" name="update_profile" value="1">
+
+                    <div class="form-grid">
+                        <?php foreach (["name" => "Name", "email" => "Email", "phone" => "Phone", "place" => "Place", "district" => "District", "state" => "State", "pincode" => "Pincode"] as $field => $label): ?>
+                            <div class="form-group">
+                                <label for="<?= e($field) ?>"><?= e($label) ?></label>
+                                <input id="<?= e($field) ?>" name="<?= e($field) ?>" type="<?= $field === "email" ? "email" : "text" ?>" value="<?= e($_POST[$field] ?? $user[$field]) ?>" class="<?= isset($errors[$field]) ? "is-invalid" : "" ?>" required>
+                                <?php if (isset($errors[$field])): ?>
+                                    <span class="input-error"><?= e($errors[$field]) ?></span>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+
+                        <div class="form-group full">
+                            <label for="address">Address</label>
+                            <textarea id="address" name="address" class="<?= isset($errors["address"]) ? "is-invalid" : "" ?>" required><?= e($_POST["address"] ?? $user["address"]) ?></textarea>
+                            <?php if (isset($errors["address"])): ?>
+                                <span class="input-error"><?= e($errors["address"]) ?></span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <div class="upload">
+                        <div class="form-group full">
+                            <label for="profile_image"><strong>Profile image</strong></label>
+                            <input id="profile_image" name="profile_image" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+                            <div class="helper-text">JPG or PNG, maximum 2 MB. Choose a new image to replace the current one.</div>
+                            <?php if (isset($errors["profile_image"])): ?>
+                                <span class="input-error"><?= e($errors["profile_image"]) ?></span>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="upload-preview">
+                            <img id="uploadPreview" src="<?= e($profileImage) ?>" alt="Selected profile preview">
+                            <div>
+                                <strong style="display:block; margin-bottom:4px; font-size:13px;">Image Preview</strong>
+                                <span class="helper-text">The selected image will appear here before saving.</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <a class="btn-outline-green" href="dashboard.php">Cancel</a>
+                        <button class="btn-primary-green" type="submit">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div>
+            <div class="user-page-card section-card" style="margin-bottom:20px;">
+                <h3>Change Password</h3>
+                <p class="section-desc">Enter your current password and choose a new secure password.</p>
+
+                <form method="post" novalidate>
+                    <input type="hidden" name="csrf_token" value="<?= e(generateCsrfToken()) ?>">
+                    <input type="hidden" name="change_password" value="1">
+
+                    <div class="form-grid">
+                        <div class="form-group full">
+                            <label for="current_password">Current Password</label>
+                            <input id="current_password" name="current_password" type="password" class="<?= isset($errors["current_password"]) ? "is-invalid" : "" ?>" required>
+                            <?php if (isset($errors["current_password"])): ?>
+                                <span class="input-error"><?= e($errors["current_password"]) ?></span>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="form-group full">
+                            <label for="new_password">New Password</label>
+                            <input id="new_password" name="new_password" type="password" class="<?= isset($errors["new_password"]) ? "is-invalid" : "" ?>" required>
+                            <?php if (isset($errors["new_password"])): ?>
+                                <span class="input-error"><?= e($errors["new_password"]) ?></span>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="form-group full">
+                            <label for="confirm_password">Confirm New Password</label>
+                            <input id="confirm_password" name="confirm_password" type="password" class="<?= isset($errors["confirm_password"]) ? "is-invalid" : "" ?>" required>
+                            <?php if (isset($errors["confirm_password"])): ?>
+                                <span class="input-error"><?= e($errors["confirm_password"]) ?></span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <button class="btn-primary-green" type="submit" style="width:100%; margin-top:6px;">Update Password</button>
+                </form>
+            </div>
+
+            <div class="user-page-card section-card">
+                <h3>Account Security</h3>
+                <p class="section-desc">Your profile uses the existing login session and updates only your own record.</p>
+
+                <div class="security-list">
+                    <div class="security-item">
+                        <strong><i class="ri-shield-check-line" style="color:var(--eco-primary); margin-right:6px;"></i> Secure Session</strong>
+                        <span>Profile updates are tied to your logged-in user ID.</span>
+                    </div>
+                    <div class="security-item">
+                        <strong><i class="ri-user-check-line" style="color:var(--eco-primary); margin-right:6px;"></i> Email Uniqueness</strong>
+                        <span>Email changes are checked against other users before saving.</span>
+                    </div>
+                    <div class="security-item">
+                        <strong><i class="ri-key-2-line" style="color:var(--eco-primary); margin-right:6px;"></i> Password Protection</strong>
+                        <span>The current password is verified before changing to a new one.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
-<nav class="navbar">
-  <div class="nav-container">
-    <a href="../dashboard.php" class="logo">
-      <span class="logo-mark"></span>
-      EcoScrap
-    </a>
-
-    <div class="nav-actions">
-      <a href="update_profile.php" class="btn btn-primary">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-        <span>Edit Profile</span>
-      </a>
-
-      <div class="dropdown" style="position: relative;">
-        <button class="user-dropdown-btn" id="userMenuBtn">
-          <img src="<?= $image ?>" alt="Avatar" class="nav-avatar-sm">
-          <span><?= htmlspecialchars(explode(' ', $user['name'] ?? 'User')[0], ENT_QUOTES, 'UTF-8') ?></span>
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-        </button>
-
-        <div class="dropdown-menu" id="userDropdown">
-          <a href="profile.php" class="dropdown-item">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-            My Account
-          </a>
-          <a href="update_profile.php" class="dropdown-item">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-            Settings
-          </a>
-          <div style="height: 1px; background: var(--surface-border); margin: 4px 0;"></div>
-          <a href="../logout.php" class="dropdown-item danger">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-            Logout
-          </a>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
-
-<div class="container">
-
-  <div class="glass-card mouse-glow hero-card">
-    <div class="avatar-wrapper">
-      <div class="avatar-frame">
-        <img src="<?= $image ?>" alt="Profile Picture">
-      </div>
-      <div class="status-online" title="Account Active"></div>
-    </div>
-
-    <div class="hero-meta">
-      <h1><?= htmlspecialchars($user['name'] ?? 'User Account', ENT_QUOTES, 'UTF-8') ?></h1>
-      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-        <span class="badge-pill">
-          <span class="badge-pulse"></span>
-          Eco Member
-        </span>
-        <span style="color: var(--text-muted); font-size: 14px; font-weight: 500;">
-          <?= htmlspecialchars($user['email'] ?? '', ENT_QUOTES, 'UTF-8') ?>
-        </span>
-      </div>
-    </div>
-
-    <div class="completion-ring-box">
-      <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">
-        Profile Completion
-      </div>
-      <div style="font-size: 20px; font-weight: 800; color: var(--primary);">
-        <?= $completion_score ?>%
-      </div>
-      <div class="progress-bar-bg">
-        <div class="progress-bar-fill"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Dynamic Stats Grid -->
-  <div class="stats-grid">
-    <div class="glass-card mouse-glow stat-card">
-      <div class="stat-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-      </div>
-      <div>
-        <div class="stat-value"><?= $total_recycled_kg ?> kg</div>
-        <div class="stat-label">Scrap Recycled</div>
-      </div>
-    </div>
-
-    <div class="glass-card mouse-glow stat-card">
-      <div class="stat-icon" style="background: #e0f2fe; color: var(--accent);">
-        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-      </div>
-      <div>
-        <!-- Dynamically Rendered Pickups Count -->
-        <div class="stat-value"><?= $completed_pickups ?></div>
-        <div class="stat-label">Pickups Done</div>
-      </div>
-    </div>
-
-    <div class="glass-card mouse-glow stat-card">
-      <div class="stat-icon" style="background: #fef3c7; color: #d97706;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
-      </div>
-      <div>
-        <div class="stat-value"><?= $completed_pickups * 50 ?></div>
-        <div class="stat-label">Eco Points</div>
-      </div>
-    </div>
-
-    <div class="glass-card mouse-glow stat-card">
-      <div class="stat-icon" style="background: #f3e8ff; color: #9333ea;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-      </div>
-      <div>
-        <div class="stat-value">Verified</div>
-        <div class="stat-label">Account Status</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="cards-grid">
-    <div class="glass-card mouse-glow dashboard-card">
-      <div class="card-header">
-        <div class="card-title">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-          Personal Details
-        </div>
-        <a href="update_profile.php" class="btn btn-ghost" style="padding: 6px 12px; font-size: 12px;">Edit</a>
-      </div>
-
-      <div class="info-list">
-        <div class="info-item">
-          <label>Full Name</label>
-          <span><?= htmlspecialchars($user['name'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?></span>
-        </div>
-        <div class="info-item">
-          <label>Email Address</label>
-          <span><?= htmlspecialchars($user['email'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?></span>
-        </div>
-        <div class="info-item">
-          <label>Phone Number</label>
-          <span><?= htmlspecialchars($user['phone'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?></span>
-        </div>
-      </div>
-    </div>
-
-    <div class="glass-card mouse-glow dashboard-card">
-      <div class="card-header">
-        <div class="card-title">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-          Location & Address
-        </div>
-        <a href="update_profile.php" class="btn btn-ghost" style="padding: 6px 12px; font-size: 12px;">Edit</a>
-      </div>
-
-      <div class="info-list">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div class="info-item">
-            <label>Place</label>
-            <span><?= htmlspecialchars($user['place'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?></span>
-          </div>
-          <div class="info-item">
-            <label>District</label>
-            <span><?= htmlspecialchars($user['district'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?></span>
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div class="info-item">
-            <label>State</label>
-            <span><?= htmlspecialchars($user['state'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?></span>
-          </div>
-          <div class="info-item">
-            <label>Pincode</label>
-            <span><?= htmlspecialchars($user['pincode'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?></span>
-          </div>
-        </div>
-
-        <div class="info-item">
-          <label>Residential Address</label>
-          <span><?= htmlspecialchars($user['address'] ?? 'No residential address set.', ENT_QUOTES, 'UTF-8') ?></span>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
+<div class="toast" id="successToast">Profile saved successfully.</div>
 
 <script>
-const userMenuBtn = document.getElementById('userMenuBtn');
-const userDropdown = document.getElementById('userDropdown');
+const imageInput = document.getElementById('profile_image');
+const uploadPreview = document.getElementById('uploadPreview');
+const toast = document.getElementById('successToast');
 
-if (userMenuBtn && userDropdown) {
-  userMenuBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    userDropdown.classList.toggle('show');
-  });
+imageInput.addEventListener('change', function () {
+    const file = this.files[0];
+    if (!file || !['image/jpeg', 'image/png'].includes(file.type) || file.size > 2 * 1024 * 1024) return;
 
-  document.addEventListener('click', () => {
-    userDropdown.classList.remove('show');
-  });
-}
-
-document.querySelectorAll('.mouse-glow').forEach(element => {
-  element.addEventListener('mousemove', e => {
-    const rect = element.getBoundingClientRect();
-    element.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
-    element.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
-  });
+    const reader = new FileReader();
+    reader.onload = function (event) {
+        uploadPreview.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
 });
-</script>
 
+<?php if ($success): ?>
+toast.textContent = <?= json_encode($success) ?>;
+toast.classList.add('show');
+setTimeout(() => toast.classList.remove('show'), 2500);
+<?php endif; ?>
+</script>
 </body>
 </html>

@@ -137,7 +137,7 @@ require_once "../includes/functions.php";
             >
 
                 <img
-                    src="../assets/logo/ecoscrap-logo.png.png"
+                    src="../assets/logo/ecoscrap-logo.png"
                     alt="EcoScrap"
                 >
 
@@ -163,7 +163,7 @@ require_once "../includes/functions.php";
                 >
 
                     <source
-                        src="../assets/logo/ecoscrap-logo.mp4.mp4"
+                        src="../assets/logo/ecoscrap-logo.mp4"
                         type="video/mp4"
                     >
 
@@ -400,6 +400,10 @@ require_once "../includes/functions.php";
                                 placeholder="Enter your full name"
                                 autocomplete="name"
                                 required
+                                minlength="2"
+                                maxlength="100"
+                                pattern="^[a-zA-Z\s.]+$"
+                                title="Name can only contain letters, spaces, and periods"
                             >
 
                         </div>
@@ -476,6 +480,9 @@ require_once "../includes/functions.php";
                                     class="form-input"
                                     placeholder="10-digit number"
                                     maxlength="10"
+                                    minlength="10"
+                                    pattern="^[0-9]{10}$"
+                                    title="Phone number must be exactly 10 digits"
                                     inputmode="numeric"
                                     autocomplete="tel"
                                     required
@@ -520,6 +527,8 @@ require_once "../includes/functions.php";
                                 class="form-input"
                                 placeholder="e.g. KL07AB1234"
                                 maxlength="20"
+                                pattern="^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}$"
+                                title="Please enter a valid vehicle number (e.g., KL07AB1234)"
                                 autocomplete="off"
                                 required
                             >
@@ -573,6 +582,9 @@ require_once "../includes/functions.php";
                                 class="form-input"
                                 placeholder="6-digit pincode"
                                 maxlength="6"
+                                minlength="6"
+                                pattern="^[0-9]{6}$"
+                                title="Pincode must be exactly 6 digits"
                                 inputmode="numeric"
                                 required
                             >
@@ -630,6 +642,7 @@ require_once "../includes/functions.php";
                                     name="password"
                                     class="form-input password-input"
                                     placeholder="Minimum 8 characters"
+                                    minlength="8"
                                     autocomplete="new-password"
                                     required
                                 >
@@ -679,6 +692,7 @@ require_once "../includes/functions.php";
                                     name="confirm_password"
                                     class="form-input password-input"
                                     placeholder="Repeat password"
+                                    minlength="8"
                                     autocomplete="new-password"
                                     required
                                 >
@@ -740,15 +754,13 @@ require_once "../includes/functions.php";
 
                         <span class="terms-box"></span>
 
-                        <span>
-
-                            I confirm that the information provided
-                            is accurate and I agree to EcoScrap's
-                            <a href="#">Terms</a>
-                            and
-                            <a href="#">Privacy Policy</a>.
-
-                        </span>
+                       <span>
+    I confirm that the information provided is accurate and I agree to
+    EcoScrap's
+    <a href="../terms.php" target="_blank">Terms</a>
+    and
+    <a href="../privacy-policy.php" target="_blank">Privacy Policy</a>.
+</span>
 
                     </label>
 
@@ -1083,6 +1095,26 @@ inputs.forEach(function(input) {
     );
 
 });
+
+
+
+/* =========================================================
+   PASSWORD MATCH VALIDATION
+========================================================= */
+
+const pwdInput = document.getElementById("password");
+const confirmPwdInput = document.getElementById("confirm_password");
+
+function validatePasswordMatch() {
+    if (pwdInput.value !== confirmPwdInput.value) {
+        confirmPwdInput.setCustomValidity("Passwords do not match");
+    } else {
+        confirmPwdInput.setCustomValidity("");
+    }
+}
+
+pwdInput.addEventListener("input", validatePasswordMatch);
+confirmPwdInput.addEventListener("input", validatePasswordMatch);
 
 
 </script>

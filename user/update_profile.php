@@ -1,15 +1,7 @@
 <?php
 session_start();
 require_once "../includes/db.php";
-
-if (!isset($_SESSION['user_id'])) {
-    header("Location: ../login.php");
-    exit();
-}
-
-$user_id = $_SESSION['user_id'];
-
-// Get current user details
+require_once "navbar.php";
 $stmt = $conn->prepare("SELECT * FROM user WHERE user_id = ?");
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
@@ -131,7 +123,8 @@ $image = (!empty($user['profile_image']) && file_exists("../uploads/profile/" . 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Update Profile - EcoScrap</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet">
 
 <style>
 :root {
@@ -584,49 +577,21 @@ body {
   .nav-center { display: none; }
 }
 </style>
+<link rel="stylesheet" href="../assets/css/user.css">
 </head>
 <body>
 
-<!-- Sticky Wireframe Navbar -->
-<nav class="navbar">
-  <div class="nav-container">
-    
-    <div class="nav-left">
-      <a href="../dashboard.php" class="logo">
-        <span class="logo-mark"></span>
-        EcoScrap
-      </a>
-    </div>
-
-    <div class="nav-center">
-      Edit Profile
-    </div>
-
-    <div class="nav-right">
-      <a href="profile.php" class="nav-back-btn" title="View Profile">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-        <span>View Profile</span>
-      </a>
-
-      <div class="dropdown">
-        <button class="user-dropdown-btn" id="userMenuBtn">
-          <img src="<?= $image ?>" alt="Avatar" class="nav-avatar-sm">
-          <span><?= htmlspecialchars(explode(' ', $user['name'] ?? 'User')[0], ENT_QUOTES, 'UTF-8') ?></span>
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-        </button>
-
-        <div class="dropdown-menu" id="userDropdown">
-          <a href="profile.php" class="dropdown-item">My Profile</a>
-          <div class="dropdown-divider"></div>
-          <a href="../logout.php" class="dropdown-item">Logout</a>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</nav>
-
+<?php ecoscrap_render_user_navbar('profile.php'); ?>
+<main class="user-page-shell">
 <div class="dashboard-shell">
+
+  <div class="user-page-heading">
+    <?php ecoscrap_render_user_back_button(); ?>
+    <div class="user-page-heading-copy">
+      <h1>Account settings</h1>
+      <p>Update your personal details and public profile presence.</p>
+    </div>
+  </div>
 
   <!-- Header Title -->
   <div class="page-header">
@@ -756,19 +721,24 @@ body {
   </form>
 
 </div>
+</main>
 
 <script>
 // User Dropdown Toggle
 const userMenuBtn = document.getElementById('userMenuBtn');
 const userDropdown = document.getElementById('userDropdown');
 
-userMenuBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  userDropdown.classList.toggle('show');
-});
+if (userMenuBtn && userDropdown) {
+  userMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    userDropdown.classList.toggle('show');
+  });
+}
 
 document.addEventListener('click', () => {
-  userDropdown.classList.remove('show');
+  if (userDropdown) {
+    userDropdown.classList.remove('show');
+  }
 });
 
 // Profile Image Live Preview

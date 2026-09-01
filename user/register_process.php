@@ -9,17 +9,17 @@ if ($_SERVER["REQUEST_METHOD"] != "POST") {
 }
 
 // Sanitize Inputs
-$name      = sanitize($_POST['name']);
-$email     = sanitize($_POST['email']);
-$phone     = sanitize($_POST['phone']);
-$address   = sanitize($_POST['address']);
-$place     = sanitize($_POST['place']);
-$district  = sanitize($_POST['district']);
-$state     = sanitize($_POST['state']);
-$pincode   = sanitize($_POST['pincode']);
+$name      = sanitize($_POST['name'] ?? '');
+$email     = sanitize($_POST['email'] ?? '');
+$phone     = sanitize($_POST['phone'] ?? '');
+$address   = sanitize($_POST['address'] ?? '');
+$place     = sanitize($_POST['place'] ?? '');
+$district  = sanitize($_POST['district'] ?? '');
+$state     = sanitize($_POST['state'] ?? '');
+$pincode   = sanitize($_POST['pincode'] ?? '');
 
-$password  = $_POST['password'];
-$confirm   = $_POST['confirm_password'];
+$password  = $_POST['password'] ?? '';
+$confirm   = $_POST['confirm_password'] ?? '';
 
 
 // --------------------
@@ -36,6 +36,11 @@ if (
     empty($confirm)
 ) {
     setMessage("danger","Please fill all required fields.");
+    redirect("register.php");
+}
+
+if (!preg_match('/^[a-zA-Z\s.]{2,100}$/', $name)) {
+    setMessage("danger","Please enter a valid name.");
     redirect("register.php");
 }
 
