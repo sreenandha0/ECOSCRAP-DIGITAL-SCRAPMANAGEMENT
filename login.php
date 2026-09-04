@@ -339,7 +339,7 @@
 
 
                             <a
-                                href="#"
+                                href="user/forgot_password.php"
                                 class="forgot-password">
 
                                 Forgot password?
