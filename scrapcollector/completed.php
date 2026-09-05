@@ -1,969 +1,2069 @@
 <?php
 session_start();
+
 require_once '../includes/db.php';
 require_once '../includes/functions.php';
 
-if (!isset($_SESSION['collector_id']) || ($_SESSION['role'] ?? '') !== 'Collector') {
+if (
+    !isset($_SESSION['collector_id']) ||
+    ($_SESSION['role'] ?? '') !== 'Collector'
+) {
     redirect('../login.php');
 }
 
-$collectorId = (int) $_SESSION['collector_id'];
+$collectorId = (int)$_SESSION['collector_id'];
 
-// Fetch completed activity records joined with user details
+function e($value): string
+{
+    return htmlspecialchars(
+        (string)$value,
+        ENT_QUOTES,
+        'UTF-8'
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Fetch completed pickup records
+|--------------------------------------------------------------------------
+*/
+
 $stmt = $conn->prepare("
-    SELECT 
-        a.activity_id, 
-        a.scrap_type, 
-        a.scrap_weight, 
-        a.amount, 
-        a.pickup_address, 
-        a.completed_at, 
-        u.name AS customer_name, 
-        u.phone AS customer_phone 
-    FROM activity a 
-    INNER JOIN user u ON u.user_id = a.user_id 
-    WHERE a.collector_id = ? AND a.status = 'Completed' 
+    SELECT
+        a.activity_id,
+        a.scrap_type,
+        a.scrap_weight,
+        a.amount,
+        a.pickup_address,
+        a.pickup_pincode,
+        a.completed_at,
+        a.qr_status,
+        u.name AS customer_name,
+        u.phone AS customer_phone
+    FROM activity AS a
+    INNER JOIN user AS u
+        ON u.user_id = a.user_id
+    WHERE a.collector_id = ?
+      AND a.status = 'Completed'
     ORDER BY a.completed_at DESC
 ");
 
-$stmt->bind_param('i', $collectorId);
+if (!$stmt) {
+    die(
+        'Database query preparation failed: ' .
+        e($conn->error)
+    );
+}
+
+$stmt->bind_param(
+    'i',
+    $collectorId
+);
+
 $stmt->execute();
+
 $result = $stmt->get_result();
 
-// Store results in array for statistical summaries & dual view rendering
 $pickups = [];
-$total_weight = 0;
-$total_amount = 0;
+$total_weight = 0.0;
+$total_amount = 0.0;
 
-if ($result && $result->num_rows > 0) {
+if ($result) {
     while ($row = $result->fetch_assoc()) {
         $pickups[] = $row;
-        $total_weight += (float)($row['scrap_weight'] ?? 0);
-        $total_amount += (float)($row['amount'] ?? 0);
+
+        $total_weight += (float)(
+            $row['scrap_weight'] ?? 0
+        );
+
+        $total_amount += (float)(
+            $row['amount'] ?? 0
+        );
     }
 }
+
+$stmt->close();
+
 $total_count = count($pickups);
+
+/*
+|--------------------------------------------------------------------------
+| Collector profile
+|--------------------------------------------------------------------------
+*/
+
+$collector = [];
+
+$collector_stmt = $conn->prepare("
+    SELECT
+        collector_id,
+        name,
+        phone,
+        vehicle_no,
+        pincode,
+        availability_status,
+        verification_status,
+        completed_pickups
+    FROM scrapcollector
+    WHERE collector_id = ?
+    LIMIT 1
+");
+
+if ($collector_stmt) {
+    $collector_stmt->bind_param(
+        'i',
+        $collectorId
+    );
+
+    $collector_stmt->execute();
+
+    $collector_result =
+        $collector_stmt->get_result();
+
+    if ($collector_result) {
+        $collector =
+            $collector_result->fetch_assoc() ?: [];
+    }
+
+    $collector_stmt->close();
+}
+
+$collector_name =
+    $collector['name'] ?? 'Collector';
+
+$collector_phone =
+    $collector['phone'] ?? 'N/A';
+
+$vehicle_no =
+    $collector['vehicle_no'] ?? 'N/A';
+
+$collector_pincode =
+    $collector['pincode'] ?? 'N/A';
+
+$availability_status =
+    $collector['availability_status'] ?? 'Offline';
+
+$verification_status =
+    $collector['verification_status'] ?? 'Pending';
+
+$completed_pickups =
+    (int)($collector['completed_pickups'] ?? 0);
+
+$name_parts = preg_split(
+    '/\s+/',
+    trim($collector_name)
+);
+
+$initials = '';
+
+foreach (
+    array_slice($name_parts, 0, 2)
+    as $part
+) {
+    $initials .= strtoupper(
+        substr($part, 0, 1)
+    );
+}
+
+$initials = $initials ?: 'C';
+
+/*
+|--------------------------------------------------------------------------
+| Notifications
+|--------------------------------------------------------------------------
+*/
+
+$notifications = [];
+$unread_count = 0;
+
+$notification_stmt = $conn->prepare("
+    SELECT
+        notification_id,
+        title,
+        message,
+        is_read,
+        created_at
+    FROM notifications
+    WHERE recipient_type = 'Collector'
+      AND recipient_id = ?
+    ORDER BY created_at DESC
+");
+
+if ($notification_stmt) {
+    $notification_stmt->bind_param(
+        'i',
+        $collectorId
+    );
+
+    $notification_stmt->execute();
+
+    $notification_result =
+        $notification_stmt->get_result();
+
+    if ($notification_result) {
+        while (
+            $notification =
+            $notification_result->fetch_assoc()
+        ) {
+            $notifications[] = $notification;
+
+            if (
+                (int)(
+                    $notification['is_read'] ?? 0
+                ) === 0
+            ) {
+                $unread_count++;
+            }
+        }
+    }
+
+    $notification_stmt->close();
+}
+
+/*
+|--------------------------------------------------------------------------
+| Helpers
+|--------------------------------------------------------------------------
+*/
+
+function getScrapIcon(string $type): string
+{
+    $type = strtolower($type);
+
+    if (strpos($type, 'paper') !== false) {
+        return 'ri-newspaper-line';
+    }
+
+    if (strpos($type, 'plastic') !== false) {
+        return 'ri-cup-line';
+    }
+
+    if (strpos($type, 'metal') !== false) {
+        return 'ri-hammer-line';
+    }
+
+    if (
+        strpos($type, 'electronic') !== false ||
+        strpos($type, 'e-waste') !== false
+    ) {
+        return 'ri-computer-line';
+    }
+
+    if (strpos($type, 'glass') !== false) {
+        return 'ri-goblet-line';
+    }
+
+    return 'ri-recycle-line';
+}
+
+function formatCompletedDate(?string $date): string
+{
+    if (!$date) {
+        return 'Date unavailable';
+    }
+
+    $timestamp = strtotime($date);
+
+    if (!$timestamp) {
+        return 'Date unavailable';
+    }
+
+    return date(
+        'd M Y, h:i A',
+        $timestamp
+    );
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Completed Pickups | EcoScrap Collector Hub</title>
 
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
-    <!-- Bootstrap 5 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    
-    <!-- Remix Icon -->
-    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <title>
+        Completed Pickups | EcoScrap Collector
+    </title>
 
-    <!-- Design System CSS -->
-    <link rel="stylesheet" href="../assets/css/style.css">
+    <link
+        rel="icon"
+        type="image/png"
+        href="../assets/logo/ecoscrap-logo.png"
+    >
+
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css"
+    >
+
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet"
+    >
 
     <style>
         :root {
-            --eco-primary: #10b981;
-            --eco-primary-hover: #059669;
-            --eco-primary-light: rgba(16, 185, 129, 0.12);
-            --eco-secondary: #0ea5e9;
-            --eco-dark: #0f172a;
-            --eco-card-bg: rgba(255, 255, 255, 0.9);
-            --eco-card-border: rgba(226, 232, 240, 0.85);
-            --eco-shadow: 0 12px 32px -4px rgba(15, 23, 42, 0.05);
-            --eco-shadow-hover: 0 20px 40px -4px rgba(16, 185, 129, 0.12);
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --text-muted: #94a3b8;
+            --eco-light: #82c843;
+            --eco-primary: #2e7d32;
+            --eco-dark: #004d40;
+            --eco-cyan: #00b4d8;
+
+            --page-bg: #f1f5f4;
+            --white: #ffffff;
+            --text-dark: #0f172a;
+            --text: #334155;
+            --muted: #64748b;
+            --light: #94a3b8;
+            --border: #e2e8f0;
+
+            --shadow-sm:
+                0 8px 22px rgba(15, 23, 42, 0.06);
+
+            --shadow-md:
+                0 18px 40px rgba(15, 23, 42, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
 
         body {
             min-height: 100vh;
-            background-color: #f8fafc;
-            font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
-            color: var(--text-primary);
-            position: relative;
             overflow-x: hidden;
-            padding-bottom: 90px;
+            color: var(--text);
+            background:
+                radial-gradient(
+                    rgba(46, 125, 50, 0.07) 1px,
+                    transparent 1px
+                );
+            background-color: var(--page-bg);
+            background-size: 16px 16px;
+            font-family: 'Inter', sans-serif;
         }
 
-        /* Ambient Background Blur Glows */
-        .ambient-blur {
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        button,
+        input {
+            font-family: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        .app {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sidebar
+        |--------------------------------------------------------------------------
+        */
+
+        .sidebar {
             position: fixed;
-            border-radius: 50%;
-            filter: blur(140px);
-            pointer-events: none;
-            z-index: 0;
-            opacity: 0.45;
+            inset: 0 auto 0 0;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            width: 256px;
+            border-right: 1px solid #e5e7eb;
+            background: var(--white);
+            transition: transform 0.3s ease;
         }
 
-        .blur-1 {
-            width: 500px;
-            height: 500px;
-            top: -100px;
-            right: -100px;
-            background: radial-gradient(circle, rgba(16, 185, 129, 0.22) 0%, transparent 70%);
-        }
-
-        .blur-2 {
-            width: 450px;
-            height: 450px;
-            bottom: -50px;
-            left: -100px;
-            background: radial-gradient(circle, rgba(14, 165, 233, 0.18) 0%, transparent 70%);
-        }
-
-        /* Top Navigation Header */
-        .app-navbar {
-            background: rgba(255, 255, 255, 0.88);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-        }
-
-        .brand-logo {
+        .sidebar-header {
             display: flex;
             align-items: center;
-            gap: 10px;
-            text-decoration: none;
-            font-weight: 800;
-            font-size: 1.25rem;
-            color: var(--eco-dark);
+            gap: 11px;
+            padding: 20px;
+            border-bottom: 1px solid #f1f5f9;
         }
 
-        .brand-logo-img {
-            height: 36px;
-            width: auto;
+        .logo-image {
+            display: block;
+            width: 45px;
+            height: 45px;
             object-fit: contain;
-            border-radius: 6px;
+            border-radius: 12px;
         }
 
-        .brand-badge {
-            font-size: 0.72rem;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            padding: 4px 10px;
-            border-radius: 30px;
-            background: var(--eco-primary-light);
+        .logo-name {
+            color: var(--text-dark);
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+
+        .logo-subtitle {
+            margin-top: 3px;
+            color: #059669;
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.13em;
+        }
+
+        .sidebar-nav {
+            display: grid;
+            gap: 6px;
+            padding: 22px 14px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            min-height: 44px;
+            padding: 0 13px;
+            border-radius: 11px;
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 600;
+            transition: 0.2s ease;
+        }
+
+        .nav-link i {
+            color: #94a3b8;
+            font-size: 18px;
+        }
+
+        .nav-link:hover {
+            color: var(--eco-primary);
+            background: #f0f8f0;
+        }
+
+        .nav-link.active {
+            color: #166534;
+            background: #eaf6ea;
+            box-shadow: 0 3px 10px rgba(46, 125, 50, 0.06);
+        }
+
+        .nav-link.active i {
             color: var(--eco-primary);
         }
 
-        .workspace-container {
-            width: 100%;
-            max-width: 1140px;
-            margin: 0 auto;
-            padding: 28px 20px;
-            position: relative;
-            z-index: 1;
+        .sidebar-footer {
+            padding: 17px 14px;
+            border-top: 1px solid #f1f5f9;
         }
 
-        /* Header Banner & Metrics */
-        .header-banner {
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            border-radius: 24px;
-            padding: 32px 28px;
-            color: #ffffff;
-            margin-bottom: 28px;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.2);
-        }
-
-        .header-banner::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 300px;
-            height: 100%;
-            background: radial-gradient(circle at 100% 0%, rgba(16, 185, 129, 0.28) 0%, transparent 70%);
-            pointer-events: none;
-        }
-
-        .header-title {
-            font-size: 1.75rem;
-            font-weight: 800;
-            margin-bottom: 6px;
-            letter-spacing: -0.02em;
-        }
-
-        .header-subtitle {
-            font-size: 0.95rem;
-            color: #94a3b8;
-            margin: 0;
-        }
-
-        /* Stat Cards */
-        .stat-pill {
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 14px 18px;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-
-        .stat-icon-wrapper {
-            width: 44px;
-            height: 44px;
-            border-radius: 12px;
+        .scan-button {
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.3rem;
+            gap: 8px;
+            min-height: 42px;
+            border-radius: 11px;
+            color: var(--white);
+            background: var(--eco-primary);
+            font-size: 11px;
+            font-weight: 700;
+            transition: 0.2s ease;
         }
 
-        .stat-pill-emerald .stat-icon-wrapper {
-            background: rgba(16, 185, 129, 0.2);
-            color: #34d399;
+        .scan-button:hover {
+            background: #256b29;
         }
 
-        .stat-pill-blue .stat-icon-wrapper {
-            background: rgba(14, 165, 233, 0.2);
-            color: #38bdf8;
-        }
-
-        .stat-pill-amber .stat-icon-wrapper {
-            background: rgba(245, 158, 11, 0.2);
-            color: #fbbf24;
-        }
-
-        .stat-val {
-            font-size: 1.25rem;
-            font-weight: 800;
-            line-height: 1.2;
-            color: #ffffff;
-        }
-
-        .stat-lbl {
-            font-size: 0.78rem;
+        .database-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 14px;
+            padding: 0 5px;
             color: #94a3b8;
-            font-weight: 500;
+            font-size: 10px;
         }
 
-        /* Filter Toolbar */
-        .filter-card {
-            background: var(--eco-card-bg);
-            backdrop-filter: blur(16px);
-            border: 1px solid var(--eco-card-border);
-            border-radius: 18px;
-            padding: 16px 20px;
-            margin-bottom: 24px;
-            box-shadow: var(--eco-shadow);
+        .database-status strong {
+            color: #475569;
         }
 
-        .search-box {
+        .database-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 0 4px #dcfce7;
+        }
+
+        .logout-link {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 13px;
+            padding: 7px 5px;
+            color: #c45b5b;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Main header
+        |--------------------------------------------------------------------------
+        */
+
+        .main {
+            flex: 1;
+            min-width: 0;
+            margin-left: 256px;
+        }
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 78px;
+            padding: 16px 28px;
+            border-bottom: 1px solid #e2e8f0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(15px);
+        }
+
+        .topbar-title {
+            color: var(--text-dark);
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.05em;
+        }
+
+        .topbar-subtitle {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 10px;
+        }
+
+        .topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .verification-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 7px 9px;
+            border: 1px solid #bde4c2;
+            border-radius: 999px;
+            color: #166534;
+            background: #edfaee;
+            font-size: 9px;
+            font-weight: 800;
+        }
+
+        .notification-wrap {
             position: relative;
         }
 
-        .search-box i {
+        .notification-button {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--muted);
+            background: var(--white);
+            font-size: 18px;
+        }
+
+        .notification-button:hover {
+            color: var(--eco-primary);
+        }
+
+        .notification-badge {
             position: absolute;
-            left: 16px;
+            top: 6px;
+            right: 6px;
+            width: 7px;
+            height: 7px;
+            border: 2px solid var(--white);
+            border-radius: 50%;
+            background: #ef4444;
+        }
+
+        .notification-dropdown {
+            position: absolute;
+            top: 48px;
+            right: 0;
+            z-index: 100;
+            display: none;
+            width: 350px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 15px;
+            background: var(--white);
+            box-shadow: var(--shadow-md);
+        }
+
+        .notification-dropdown.open {
+            display: block;
+        }
+
+        .notification-heading {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .notification-heading h3 {
+            color: var(--text-dark);
+            font-size: 14px;
+        }
+
+        .notification-heading p {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 10px;
+        }
+
+        .notification-item {
+            padding: 13px 16px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .notification-item.unread {
+            background: #eff9ef;
+        }
+
+        .notification-item strong {
+            color: var(--text-dark);
+            font-size: 11px;
+        }
+
+        .notification-item p {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 10px;
+            line-height: 1.5;
+        }
+
+        .notification-item small {
+            display: block;
+            margin-top: 6px;
+            color: var(--light);
+            font-size: 9px;
+        }
+
+        .profile-mini {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding-left: 12px;
+            border-left: 1px solid var(--border);
+        }
+
+        .avatar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 11px;
+            color: var(--white);
+            background: var(--eco-primary);
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .profile-name {
+            max-width: 140px;
+            overflow: hidden;
+            color: var(--text-dark);
+            font-size: 11px;
+            font-weight: 800;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .profile-role {
+            margin-top: 3px;
+            color: var(--muted);
+            font-size: 9px;
+        }
+
+        .mobile-menu {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            width: 37px;
+            height: 37px;
+            margin-right: 10px;
+            border: 0;
+            border-radius: 9px;
+            color: var(--text-dark);
+            background: #eaf6ea;
+            font-size: 20px;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Page content
+        |--------------------------------------------------------------------------
+        */
+
+        .content {
+            max-width: 1500px;
+            margin: 0 auto;
+            padding: 28px;
+        }
+
+        .page-heading {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 20px;
+            margin-bottom: 21px;
+        }
+
+        .eyebrow {
+            color: var(--eco-primary);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+        }
+
+        .page-title {
+            margin-top: 7px;
+            color: var(--text-dark);
+            font-size: 31px;
+            font-weight: 800;
+            letter-spacing: -0.05em;
+        }
+
+        .page-description {
+            max-width: 680px;
+            margin-top: 8px;
+            color: var(--muted);
+            font-size: 11px;
+            line-height: 1.55;
+        }
+
+        .back-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 13px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--muted);
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            font-size: 10px;
+            font-weight: 800;
+        }
+
+        .back-button:hover {
+            color: var(--eco-primary);
+            background: #f4fbf4;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Statistics
+        |--------------------------------------------------------------------------
+        */
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 19px;
+        }
+
+        .metric-card {
+            position: relative;
+            overflow: hidden;
+            padding: 17px;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.96);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .metric-card::after {
+            position: absolute;
+            right: -35px;
+            bottom: -45px;
+            width: 130px;
+            height: 130px;
+            border-radius: 50%;
+            background: var(--metric-color);
+            opacity: 0.08;
+            content: '';
+        }
+
+        .metric-green {
+            --metric-color: var(--eco-primary);
+        }
+
+        .metric-blue {
+            --metric-color: var(--eco-cyan);
+        }
+
+        .metric-amber {
+            --metric-color: #d99014;
+        }
+
+        .metric-slate {
+            --metric-color: #64748b;
+        }
+
+        .metric-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .metric-label {
+            color: var(--muted);
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+        }
+
+        .metric-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 37px;
+            height: 37px;
+            border-radius: 10px;
+            color: var(--metric-color);
+            background: #f0f8f0;
+            font-size: 19px;
+        }
+
+        .metric-value {
+            position: relative;
+            z-index: 1;
+            margin-top: 14px;
+            color: var(--text-dark);
+            font-size: 25px;
+            font-weight: 800;
+        }
+
+        .metric-value small {
+            font-size: 11px;
+            font-weight: 800;
+        }
+
+        .metric-help {
+            position: relative;
+            z-index: 1;
+            margin-top: 5px;
+            color: var(--light);
+            font-size: 9px;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Search and filters
+        |--------------------------------------------------------------------------
+        */
+
+        .filter-panel {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 19px;
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: 15px;
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .search-wrapper {
+            position: relative;
+        }
+
+        .search-wrapper i {
+            position: absolute;
             top: 50%;
+            left: 13px;
+            color: var(--light);
+            font-size: 17px;
             transform: translateY(-50%);
-            color: var(--text-muted);
-            font-size: 1.1rem;
         }
 
         .search-input {
             width: 100%;
-            padding: 11px 16px 11px 44px;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
-            background: #ffffff;
-            font-size: 0.92rem;
-            color: var(--text-primary);
-            transition: all 0.2s ease;
+            height: 40px;
+            padding: 0 13px 0 40px;
+            outline: none;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-dark);
+            background: #fbfdfc;
+            font-size: 11px;
         }
 
         .search-input:focus {
-            outline: none;
             border-color: var(--eco-primary);
-            box-shadow: 0 0 0 4px var(--eco-primary-light);
+            box-shadow: 0 0 0 4px rgba(46, 125, 50, 0.1);
         }
 
-        .category-pill-btn {
-            border: 1px solid #e2e8f0;
-            background: #ffffff;
-            color: var(--text-secondary);
-            border-radius: 20px;
-            padding: 6px 16px;
-            font-size: 0.83rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
+        .category-filters {
+            display: flex;
+            gap: 6px;
+            overflow-x: auto;
+        }
+
+        .category-button {
+            flex: 0 0 auto;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            color: var(--muted);
+            background: var(--white);
+            font-size: 10px;
+            font-weight: 800;
             white-space: nowrap;
         }
 
-        .category-pill-btn:hover,
-        .category-pill-btn.active {
-            background: var(--eco-dark);
-            color: #ffffff;
-            border-color: var(--eco-dark);
+        .category-button:hover,
+        .category-button.active {
+            color: var(--white);
+            border-color: var(--eco-primary);
+            background: var(--eco-primary);
         }
 
-        /* Modern Table Card */
-        .table-glass-card {
-            background: var(--eco-card-bg);
-            backdrop-filter: blur(16px);
-            border: 1px solid var(--eco-card-border);
-            border-radius: 20px;
-            box-shadow: var(--eco-shadow);
-            overflow: hidden;
-            margin-bottom: 24px;
+        /*
+        |--------------------------------------------------------------------------
+        | Completed cards
+        |--------------------------------------------------------------------------
+        */
+
+        .completed-grid {
+            display: grid;
+            grid-template-columns: repeat(
+                auto-fill,
+                minmax(290px, 1fr)
+            );
+            gap: 16px;
         }
 
-        .custom-table {
-            margin-bottom: 0;
-            width: 100%;
+        .completed-card {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 350px;
+            padding: 18px;
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            transition: 0.25s ease;
         }
 
-        .custom-table thead tr {
-            background-color: #f8fafc;
-            border-bottom: 1px solid #e2e8f0;
+        .completed-card:hover {
+            border-color: #bfe2c2;
+            box-shadow: var(--shadow-md);
+            transform: translateY(-3px);
         }
 
-        .custom-table th {
-            padding: 16px 20px;
-            font-size: 0.78rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            border: none;
+        .card-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border);
         }
 
-        .custom-table td {
-            padding: 18px 20px;
-            vertical-align: middle;
-            border-bottom: 1px solid #f1f5f9;
-            color: var(--text-primary);
-            font-size: 0.92rem;
-        }
-
-        .custom-table tbody tr:last-child td {
-            border-bottom: none;
-        }
-
-        .custom-table tbody tr {
-            transition: background 0.2s ease;
-        }
-
-        .custom-table tbody tr:hover {
-            background-color: rgba(241, 245, 249, 0.6);
-        }
-
-        /* Scrap Badges */
-        .scrap-chip {
+        .material-badge {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 5px 12px;
-            border-radius: 10px;
-            font-size: 0.82rem;
-            font-weight: 700;
-            background: #f1f5f9;
-            color: var(--text-primary);
-            border: 1px solid #e2e8f0;
+            padding: 7px 10px;
+            border-radius: 9px;
+            color: var(--eco-primary);
+            background: #ecf8ed;
+            font-size: 10px;
+            font-weight: 800;
         }
 
-        .badge-verified-completed {
-            background: rgba(16, 185, 129, 0.12);
-            color: #047857;
-            border: 1px solid rgba(16, 185, 129, 0.25);
-            padding: 5px 12px;
-            border-radius: 30px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
+        .completed-badge {
             display: inline-flex;
             align-items: center;
             gap: 4px;
-        }
-
-        .payout-text {
+            padding: 6px 8px;
+            border: 1px solid #bde4c2;
+            border-radius: 999px;
+            color: #166534;
+            background: #edfaee;
+            font-size: 8px;
             font-weight: 800;
-            color: #059669;
-            font-size: 0.98rem;
+            text-transform: uppercase;
         }
 
-        /* Mobile Card Grid (Visible on mobile screens) */
-        .mobile-cards-wrapper {
-            display: none;
+        .card-info {
+            display: grid;
+            gap: 12px;
+            margin-top: 17px;
         }
 
-        .mobile-completed-card {
-            background: var(--eco-card-bg);
-            backdrop-filter: blur(16px);
-            border: 1px solid var(--eco-card-border);
-            border-radius: 20px;
-            padding: 20px;
-            box-shadow: var(--eco-shadow);
-            margin-bottom: 16px;
+        .info-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
         }
 
-        /* Empty State Styling */
-        .empty-alert {
-            text-align: center;
-            padding: 60px 24px;
-            background: var(--eco-card-bg);
-            backdrop-filter: blur(16px);
-            border: 1px dashed #cbd5e1;
-            border-radius: 24px;
-            color: var(--text-secondary);
-        }
-
-        .empty-icon-circle {
-            width: 80px;
-            height: 80px;
-            background: var(--eco-primary-light);
-            color: var(--eco-primary);
-            border-radius: 50%;
+        .info-icon {
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 2.2rem;
-            margin: 0 auto 20px auto;
+            flex: 0 0 auto;
+            width: 31px;
+            height: 31px;
+            border: 1px solid #e6f0e8;
+            border-radius: 9px;
+            color: var(--eco-primary);
+            background: #f8fcf8;
+            font-size: 16px;
         }
 
-        /* Custom Receipt Modal */
-        .modal-content-custom {
-            border-radius: 24px;
-            border: none;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        .info-label {
+            display: block;
+            color: var(--light);
+            font-size: 8px;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .info-value {
+            display: block;
+            margin-top: 4px;
             overflow: hidden;
+            color: var(--text-dark);
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1.45;
+            text-overflow: ellipsis;
         }
 
-        .modal-header-custom {
-            background: var(--eco-dark);
-            color: #ffffff;
-            padding: 20px 24px;
-            border: none;
+        .card-summary {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 16px;
+            padding-top: 13px;
+            border-top: 1px dashed var(--border);
         }
 
-        .receipt-box {
-            background: #f8fafc;
-            border: 1px dashed #cbd5e1;
-            border-radius: 16px;
-            padding: 20px;
+        .summary-box {
+            padding: 10px;
+            border-radius: 10px;
+            background: #f7faf8;
         }
 
-        .receipt-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 0.9rem;
+        .summary-box span {
+            display: block;
+            color: var(--light);
+            font-size: 8px;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
         }
 
-        .receipt-row:last-child {
-            border-bottom: none;
+        .summary-box strong {
+            display: block;
+            margin-top: 5px;
+            color: var(--text-dark);
+            font-size: 14px;
         }
 
-        /* Floating Navigation for Mobile */
-        .mobile-bottom-nav {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(20px);
-            border-top: 1px solid #e2e8f0;
-            padding: 10px 16px;
-            z-index: 999;
-            display: flex;
-            justify-content: space-around;
-            align-items: center;
-        }
-
-        .nav-item-btn {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 2px;
-            font-size: 0.72rem;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-decoration: none;
-            transition: color 0.2s ease;
-        }
-
-        .nav-item-btn i {
-            font-size: 1.3rem;
-        }
-
-        .nav-item-btn.active {
+        .summary-box.amount strong {
             color: var(--eco-primary);
         }
 
-        @media (max-width: 868px) {
-            .desktop-table-wrapper {
+        .card-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-top: 16px;
+            padding-top: 13px;
+            border-top: 1px dashed var(--border);
+        }
+
+        .card-footer small {
+            color: var(--light);
+            font-size: 9px;
+        }
+
+        .details-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            color: var(--white);
+            background: var(--eco-primary);
+            font-size: 9px;
+            font-weight: 800;
+        }
+
+        .details-button:hover {
+            background: #256b29;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Empty state
+        |--------------------------------------------------------------------------
+        */
+
+        .empty-state {
+            padding: 65px 20px;
+            border: 1px dashed #cbd9cf;
+            border-radius: 18px;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.78);
+        }
+
+        .empty-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 70px;
+            height: 70px;
+            margin: 0 auto 15px;
+            border-radius: 20px;
+            color: var(--eco-primary);
+            background: #eaf7e9;
+            font-size: 32px;
+        }
+
+        .empty-state h3 {
+            color: var(--text-dark);
+            font-size: 16px;
+        }
+
+        .empty-state p {
+            margin-top: 7px;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Responsive
+        |--------------------------------------------------------------------------
+        */
+
+        @media (max-width: 1150px) {
+            .metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 1000px) {
+            .filter-panel {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 850px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .main {
+                margin-left: 0;
+            }
+
+            .mobile-menu {
+                display: inline-flex;
+            }
+
+            .topbar {
+                padding: 14px 20px;
+            }
+
+            .content {
+                padding: 22px 20px;
+            }
+        }
+
+        @media (max-width: 650px) {
+            .page-heading {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .metrics {
+                grid-template-columns: 1fr;
+            }
+
+            .topbar-title {
+                font-size: 17px;
+            }
+
+            .topbar-subtitle,
+            .verification-badge,
+            .profile-mini > div:last-child {
                 display: none;
             }
-            .mobile-cards-wrapper {
-                display: block;
+
+            .profile-mini {
+                padding-left: 3px;
             }
-            .workspace-container {
-                padding: 16px 12px;
+
+            .notification-dropdown {
+                position: fixed;
+                top: 68px;
+                right: 12px;
+                left: 12px;
+                width: auto;
             }
-            .header-banner {
-                padding: 24px 20px;
-                border-radius: 20px;
+
+            .content {
+                padding: 20px 13px;
             }
-            .header-title {
-                font-size: 1.4rem;
+
+            .page-title {
+                font-size: 27px;
+            }
+        }
+
+        @media (max-width: 450px) {
+            .completed-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
 
 <body>
+    <div class="app">
 
-    <!-- Ambient background glows -->
-    <div class="ambient-blur blur-1"></div>
-    <div class="ambient-blur blur-2"></div>
+        <!-- Sidebar -->
+        <aside
+            id="sidebar"
+            class="sidebar"
+        >
+            <div>
+                <div class="sidebar-header">
+                    <img
+                        src="../assets/logo/ecoscrap-logo.png"
+                        alt="EcoScrap Logo"
+                        class="logo-image"
+                    >
 
-    <nav class="app-navbar py-3">
-        <div class="container-fluid max-width-1140 px-4 d-flex align-items-center justify-content-between">
-            <a href="dashboard.php" class="brand-logo">
-                <img src="../assets/logo/ecoscrap-logo.png" alt="EcoScrap Logo" class="brand-logo-img">
-                <span>EcoScrap</span>
-                <span class="brand-badge">Collector Hub</span>
-            </a>
-            
-            <div class="d-flex align-items-center gap-2">
-                <a href="assigned_pickups.php" class="btn btn-outline-secondary btn-sm rounded-pill px-3 fw-semibold d-none d-sm-inline-flex align-items-center gap-1">
-                    <i class="ri-time-line"></i> Active Queue
-                </a>
-                <a href="dashboard.php" class="btn btn-light btn-sm border rounded-pill px-3 fw-semibold d-flex align-items-center gap-1">
-                    <i class="ri-arrow-left-line"></i> Dashboard
-                </a>
+                    <div>
+                        <div class="logo-name">
+                            ECOSCRAP
+                        </div>
+
+                        <div class="logo-subtitle">
+                            COLLECTOR PORTAL
+                        </div>
+                    </div>
+                </div>
+
+                <nav class="sidebar-nav">
+                    <a
+                        href="dashboard.php"
+                        class="nav-link"
+                    >
+                        <i class="ri-dashboard-line"></i>
+                        <span>Dashboard</span>
+                    </a>
+
+                    <a
+                        href="assigned_requests.php"
+                        class="nav-link"
+                    >
+                        <i class="ri-truck-ramp-box-line"></i>
+                        <span>Assigned Requests</span>
+                    </a>
+
+                    <a
+                        href="verify_qr.php"
+                        class="nav-link"
+                    >
+                        <i class="ri-qr-scan-2-line"></i>
+                        <span>Verify QR Codes</span>
+                    </a>
+
+                    <a
+                        href="completed.php"
+                        class="nav-link active"
+                    >
+                        <i class="ri-checkbox-circle-line"></i>
+                        <span>Completed Pickups</span>
+                    </a>
+
+                    <a
+                        href="profile.php"
+                        class="nav-link"
+                    >
+                        <i class="ri-id-card-line"></i>
+                        <span>Collector Profile</span>
+                    </a>
+                </nav>
             </div>
-        </div>
-    </nav>
 
-    <!-- Main Content Workspace -->
-    <main class="workspace-container">
+            <div class="sidebar-footer">
+                <a
+                    href="verify_qr.php"
+                    class="scan-button"
+                >
+                    <i class="ri-camera-line"></i>
+                    <span>Scan Customer QR</span>
+                </a>
 
-        <header class="header-banner">
-            <div class="row align-items-center gy-4">
-                <div class="col-lg-5">
-                    <span class="badge bg-success bg-opacity-20 text-success border border-success border-opacity-20 px-3 py-1.5 rounded-pill mb-2 fw-semibold fs-7">
-                        <i class="ri-shield-check-line align-middle me-1"></i> Verified History Log
+                <div class="database-status">
+                    <span>
+                        Database:
+                        <strong>Connected</strong>
                     </span>
-                    <h1 class="header-title">Completed Pickups</h1>
-                    <p class="header-subtitle">Review your successfully collected and verified scrap transactions.</p>
+
+                    <span class="database-dot"></span>
                 </div>
-                <div class="col-lg-7">
-                    <div class="row g-2">
-                        <div class="col-4">
-                            <div class="stat-pill stat-pill-emerald">
-                                <div class="stat-icon-wrapper">
-                                    <i class="ri-checkbox-circle-fill"></i>
-                                </div>
-                                <div>
-                                    <div class="stat-val"><?= number_format($total_count) ?></div>
-                                    <div class="stat-lbl">Pickups</div>
-                                </div>
-                            </div>
+
+                <a
+                    href="../logout.php"
+                    class="logout-link"
+                >
+                    <i class="ri-logout-box-r-line"></i>
+                    <span>Logout</span>
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main">
+
+            <!-- Header -->
+            <header class="topbar">
+                <div
+                    style="
+                        display: flex;
+                        align-items: center;
+                    "
+                >
+                    <button
+                        type="button"
+                        class="mobile-menu"
+                        onclick="toggleSidebar()"
+                    >
+                        <i class="ri-menu-line"></i>
+                    </button>
+
+                    <div>
+                        <div class="topbar-title">
+                            COLLECTOR OVERVIEW
                         </div>
-                        <div class="col-4">
-                            <div class="stat-pill stat-pill-blue">
-                                <div class="stat-icon-wrapper">
-                                    <i class="ri-scales-3-line"></i>
-                                </div>
-                                <div>
-                                    <div class="stat-val"><?= number_format($total_weight, 1) ?> <small style="font-size: 0.75rem;">KG</small></div>
-                                    <div class="stat-lbl">Collected</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="stat-pill stat-pill-amber">
-                                <div class="stat-icon-wrapper">
-                                    <i class="ri-hand-coin-line"></i>
-                                </div>
-                                <div>
-                                    <div class="stat-val">₹<?= number_format($total_amount, 0) ?></div>
-                                    <div class="stat-lbl">Payouts</div>
-                                </div>
-                            </div>
+
+                        <div class="topbar-subtitle">
+                            Completed pickup history for
+                            <strong>
+                                <?php echo e($collector_name); ?>
+                            </strong>
                         </div>
                     </div>
                 </div>
-            </div>
-        </header>
 
-        <section class="filter-card">
-            <div class="row g-3 align-items-center">
-                <div class="col-md-5">
-                    <div class="search-box">
-                        <i class="ri-search-line"></i>
-                        <input type="text" id="searchInput" class="search-input" placeholder="Search by ID, customer name, phone, address...">
-                    </div>
-                </div>
-                <div class="col-md-7 d-flex align-items-center gap-2 overflow-x-auto pb-1 pb-md-0">
-                    <span class="text-muted fs-7 fw-semibold me-1 d-none d-lg-inline">Category:</span>
-                    <button type="button" class="category-pill-btn active" data-category="ALL">All</button>
-                    <button type="button" class="category-pill-btn" data-category="Paper">Paper</button>
-                    <button type="button" class="category-pill-btn" data-category="Plastic">Plastic</button>
-                    <button type="button" class="category-pill-btn" data-category="Metal">Metal</button>
-                    <button type="button" class="category-pill-btn" data-category="E-Waste">E-Waste</button>
-                </div>
-            </div>
-        </section>
+                <div class="topbar-actions">
+                    <span class="verification-badge">
+                        <i class="ri-shield-check-line"></i>
+                        <?php echo e($verification_status); ?>
+                    </span>
 
-        <?php if (!empty($pickups)): ?>
-            
-            <!-- Desktop Data Table View -->
-            <div class="desktop-table-wrapper table-glass-card">
-                <div class="table-responsive">
-                    <table class="table custom-table align-middle" id="pickupTable">
-                        <thead>
-                            <tr>
-                                <th>Transaction</th>
-                                <th>Customer Details</th>
-                                <th>Scrap Details</th>
-                                <th>Weight</th>
-                                <th>Payout Amount</th>
-                                <th>Completion Date</th>
-                                <th>Status</th>
-                                <th class="text-end">Receipt</th>
-                            </tr>
-                        </thead>
-                        <tbody id="completedTableBody">
-                            <?php foreach ($pickups as $p): 
-                                $scrapType = $p['scrap_type'] ?? 'General Scrap';
-                                $iconClass = 'ri-recycle-line';
-                                if (stripos($scrapType, 'paper') !== false) $iconClass = 'ri-newspaper-line';
-                                elseif (stripos($scrapType, 'plastic') !== false) $iconClass = 'ri-cup-line';
-                                elseif (stripos($scrapType, 'metal') !== false) $iconClass = 'ri-hammer-line';
-                                elseif (stripos($scrapType, 'e-waste') !== false || stripos($scrapType, 'electronic') !== false) $iconClass = 'ri-computer-line';
-                            ?>
-                                <tr class="pickup-row" 
-                                    data-id="#<?= (int)$p['activity_id'] ?>"
-                                    data-customer="<?= htmlspecialchars(strtolower($p['customer_name'] ?? '')) ?>"
-                                    data-phone="<?= htmlspecialchars($p['customer_phone'] ?? '') ?>"
-                                    data-category="<?= htmlspecialchars($scrapType) ?>"
-                                    data-address="<?= htmlspecialchars(strtolower($p['pickup_address'] ?? '')) ?>">
-                                    <td>
-                                        <div class="fw-bold text-dark">#PKP-<?= sprintf('%04d', $p['activity_id']) ?></div>
-                                        <small class="text-muted">ID: <?= (int)$p['activity_id'] ?></small>
-                                    </td>
-                                    <td>
-                                        <div class="fw-semibold text-dark"><?= htmlspecialchars($p['customer_name'] ?? 'Customer') ?></div>
-                                        <small class="text-muted"><i class="ri-phone-line me-1"></i><?= htmlspecialchars($p['customer_phone'] ?? 'N/A') ?></small>
-                                    </td>
-                                    <td>
-                                        <span class="scrap-chip">
-                                            <i class="<?= $iconClass ?> text-success"></i>
-                                            <?= htmlspecialchars($scrapType) ?>
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span class="fw-bold text-dark"><?= number_format((float)($p['scrap_weight'] ?? 0), 2) ?></span> <span class="text-muted fs-7">KG</span>
-                                    </td>
-                                    <td>
-                                        <span class="payout-text">₹<?= number_format((float)($p['amount'] ?? 0), 2) ?></span>
-                                    </td>
-                                    <td>
-                                        <div class="fw-semibold text-dark fs-7">
-                                            <?= !empty($p['completed_at']) ? date('d M Y', strtotime($p['completed_at'])) : '—' ?>
-                                        </div>
-                                        <small class="text-muted">
-                                            <?= !empty($p['completed_at']) ? date('h:i A', strtotime($p['completed_at'])) : '' ?>
+                    <div class="notification-wrap">
+                        <button
+                            type="button"
+                            class="notification-button"
+                            onclick="toggleNotifications(event)"
+                            title="Notifications"
+                        >
+                            <i class="ri-notification-3-line"></i>
+
+                            <?php if ($unread_count > 0): ?>
+                                <span class="notification-badge"></span>
+                            <?php endif; ?>
+                        </button>
+
+                        <div
+                            id="notificationDropdown"
+                            class="notification-dropdown"
+                        >
+                            <div class="notification-heading">
+                                <h3>Notifications</h3>
+
+                                <p>
+                                    <?php echo $unread_count; ?>
+                                    unread notification(s)
+                                </p>
+                            </div>
+
+                            <?php if (empty($notifications)): ?>
+                                <div
+                                    style="
+                                        padding: 30px;
+                                        color: #64748b;
+                                        font-size: 11px;
+                                        text-align: center;
+                                    "
+                                >
+                                    No notifications yet.
+                                </div>
+                            <?php else: ?>
+                                <?php foreach ($notifications as $notification): ?>
+                                    <?php
+                                    $is_unread =
+                                        (int)(
+                                            $notification['is_read'] ?? 0
+                                        ) === 0;
+                                    ?>
+
+                                    <div
+                                        class="
+                                            notification-item
+                                            <?php echo $is_unread ? 'unread' : ''; ?>
+                                        "
+                                    >
+                                        <strong>
+                                            <?php echo e(
+                                                $notification['title'] ??
+                                                'Notification'
+                                            ); ?>
+                                        </strong>
+
+                                        <p>
+                                            <?php echo e(
+                                                $notification['message'] ??
+                                                ''
+                                            ); ?>
+                                        </p>
+
+                                        <small>
+                                            <?php
+                                            echo e(
+                                                date(
+                                                    'd M Y, h:i A',
+                                                    strtotime(
+                                                        $notification['created_at'] ??
+                                                        'now'
+                                                    )
+                                                )
+                                            );
+                                            ?>
                                         </small>
-                                    </td>
-                                    <td>
-                                        <span class="badge-verified-completed">
-                                            <i class="ri-checkbox-circle-fill"></i> Verified
-                                        </span>
-                                    </td>
-                                    <td class="text-end">
-                                        <button class="btn btn-sm btn-light border rounded-circle shadow-sm btn-view-receipt" 
-                                                style="width: 36px; height: 36px;"
-                                                data-id="PKP-<?= sprintf('%04d', $p['activity_id']) ?>"
-                                                data-customer="<?= htmlspecialchars($p['customer_name'] ?? 'Customer') ?>"
-                                                data-phone="<?= htmlspecialchars($p['customer_phone'] ?? 'N/A') ?>"
-                                                data-address="<?= htmlspecialchars($p['pickup_address'] ?? 'N/A') ?>"
-                                                data-type="<?= htmlspecialchars($scrapType) ?>"
-                                                data-weight="<?= number_format((float)($p['scrap_weight'] ?? 0), 2) ?>"
-                                                data-amount="₹<?= number_format((float)($p['amount'] ?? 0), 2) ?>"
-                                                data-date="<?= !empty($p['completed_at']) ? date('d M Y, h:i A', strtotime($p['completed_at'])) : '—' ?>"
-                                                title="View Digital Receipt">
-                                            <i class="ri-file-list-3-line text-secondary"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <div class="profile-mini">
+                        <div class="avatar">
+                            <?php echo e($initials); ?>
+                        </div>
+
+                        <div>
+                            <div class="profile-name">
+                                <?php echo e($collector_name); ?>
+                            </div>
+
+                            <div class="profile-role">
+                                <?php echo e($vehicle_no); ?>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            </header>
 
-            <!-- Mobile Card View -->
-            <div class="mobile-cards-wrapper" id="mobileCardsContainer">
-                <?php foreach ($pickups as $p): 
-                    $scrapType = $p['scrap_type'] ?? 'General Scrap';
-                    $iconClass = 'ri-recycle-line';
-                    if (stripos($scrapType, 'paper') !== false) $iconClass = 'ri-newspaper-line';
-                    elseif (stripos($scrapType, 'plastic') !== false) $iconClass = 'ri-cup-line';
-                    elseif (stripos($scrapType, 'metal') !== false) $iconClass = 'ri-hammer-line';
-                    elseif (stripos($scrapType, 'e-waste') !== false || stripos($scrapType, 'electronic') !== false) $iconClass = 'ri-computer-line';
-                ?>
-                    <div class="mobile-completed-card pickup-row"
-                        data-id="#<?= (int)$p['activity_id'] ?>"
-                        data-customer="<?= htmlspecialchars(strtolower($p['customer_name'] ?? '')) ?>"
-                        data-phone="<?= htmlspecialchars($p['customer_phone'] ?? '') ?>"
-                        data-category="<?= htmlspecialchars($scrapType) ?>"
-                        data-address="<?= htmlspecialchars(strtolower($p['pickup_address'] ?? '')) ?>">
-                        
-                        <div class="d-flex align-items-center justify-content-between mb-3">
-                            <span class="scrap-chip">
-                                <i class="<?= $iconClass ?> text-success"></i>
-                                <?= htmlspecialchars($scrapType) ?>
-                            </span>
-                            <span class="badge-verified-completed">
-                                <i class="ri-checkbox-circle-fill"></i> Verified
-                            </span>
+            <section class="content">
+
+                <!-- Page heading -->
+                <div class="page-heading">
+                    <div>
+                        <div class="eyebrow">
+                            Collection History
                         </div>
 
-                        <div class="d-flex justify-content-between align-items-baseline mb-2">
-                            <h6 class="fw-bold mb-0 text-dark"><?= htmlspecialchars($p['customer_name'] ?? 'Customer') ?></h6>
-                            <span class="fw-extrabold text-success fs-5">₹<?= number_format((float)($p['amount'] ?? 0), 2) ?></span>
-                        </div>
+                        <h1 class="page-title">
+                            Completed Pickups
+                        </h1>
 
-                        <p class="text-muted fs-7 mb-3">
-                            <i class="ri-map-pin-line me-1 text-primary"></i> <?= htmlspecialchars($p['pickup_address'] ?? 'N/A') ?>
+                        <p class="page-description">
+                            Review your completed collection jobs,
+                            recovered scrap weight, and total value
+                            collected from customers.
                         </p>
-
-                        <div class="row g-2 pt-2 border-top border-dashed fs-7 text-muted">
-                            <div class="col-6">
-                                <i class="ri-scales-3-line me-1"></i> Weight: <strong class="text-dark"><?= number_format((float)($p['scrap_weight'] ?? 0), 2) ?> KG</strong>
-                            </div>
-                            <div class="col-6 text-end">
-                                <i class="ri-calendar-line me-1"></i> <?= !empty($p['completed_at']) ? date('d M Y', strtotime($p['completed_at'])) : '—' ?>
-                            </div>
-                        </div>
-
-                        <div class="mt-3 pt-2 d-flex gap-2">
-                            <a href="tel:<?= htmlspecialchars($p['customer_phone'] ?? '') ?>" class="btn btn-sm btn-light border flex-grow-1 rounded-3 text-secondary fw-semibold">
-                                <i class="ri-phone-line text-success me-1"></i> Call
-                            </a>
-                            <button class="btn btn-sm btn-outline-success flex-grow-1 rounded-3 fw-semibold btn-view-receipt"
-                                    data-id="PKP-<?= sprintf('%04d', $p['activity_id']) ?>"
-                                    data-customer="<?= htmlspecialchars($p['customer_name'] ?? 'Customer') ?>"
-                                    data-phone="<?= htmlspecialchars($p['customer_phone'] ?? 'N/A') ?>"
-                                    data-address="<?= htmlspecialchars($p['pickup_address'] ?? 'N/A') ?>"
-                                    data-type="<?= htmlspecialchars($scrapType) ?>"
-                                    data-weight="<?= number_format((float)($p['scrap_weight'] ?? 0), 2) ?>"
-                                    data-amount="₹<?= number_format((float)($p['amount'] ?? 0), 2) ?>"
-                                    data-date="<?= !empty($p['completed_at']) ? date('d M Y, h:i A', strtotime($p['completed_at'])) : '—' ?>">
-                                <i class="ri-file-list-3-line me-1"></i> Receipt
-                            </button>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-
-            <div id="noMatchAlert" class="empty-alert my-4 d-none">
-                <div class="empty-icon-circle">
-                    <i class="ri-search-line"></i>
-                </div>
-                <h5 class="fw-bold">No Matching Records Found</h5>
-                <p class="mb-0 text-muted fs-7">Try adjusting your search terms or category filter.</p>
-            </div>
-
-        <?php else: ?>
-            <div class="empty-alert">
-                <div class="empty-icon-circle">
-                    <i class="ri-inbox-line"></i>
-                </div>
-                <h5 class="fw-bold">No Completed Pickups Yet</h5>
-                <p class="mb-0">Verified pickup jobs will appear here automatically once QR verification is finalized.</p>
-            </div>
-        <?php endif; ?>
-
-    </main>
-
-    <div class="modal fade" id="receiptModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content modal-content-custom">
-                <div class="modal-header modal-header-custom d-flex justify-content-between align-items-center">
-                    <div class="d-flex align-items-center gap-2">
-                        <img src="../assets/logo/ecoscrap-logo.png" alt="EcoScrap Logo" style="height:28px; width:auto;">
-                        <h6 class="modal-title fw-bold text-white mb-0">Verified Pickup Receipt</h6>
-                    </div>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body p-4">
-                    <div class="text-center mb-3">
-                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-1.5 rounded-pill fw-semibold fs-7 mb-2">
-                            <i class="ri-checkbox-circle-fill me-1"></i> Transaction Complete & Disbursed
-                        </span>
-                        <h3 class="fw-extrabold text-emerald mb-0" id="receiptModalAmount">₹0.00</h3>
-                        <small class="text-muted" id="receiptModalId">#PKP-0000</small>
                     </div>
 
-                    <div class="receipt-box mb-3">
-                        <div class="receipt-row">
-                            <span class="text-muted">Customer Name</span>
-                            <strong id="receiptModalCustomer" class="text-dark">—</strong>
+                    <a
+                        href="dashboard.php"
+                        class="back-button"
+                    >
+                        <i class="ri-arrow-left-line"></i>
+                        Back to Dashboard
+                    </a>
+                </div>
+
+                <!-- Metrics -->
+                <div class="metrics">
+                    <div class="metric-card metric-green">
+                        <div class="metric-top">
+                            <span class="metric-label">
+                                COMPLETED PICKUPS
+                            </span>
+
+                            <span class="metric-icon">
+                                <i class="ri-checkbox-circle-line"></i>
+                            </span>
                         </div>
-                        <div class="receipt-row">
-                            <span class="text-muted">Phone Number</span>
-                            <span id="receiptModalPhone" class="fw-semibold text-dark">—</span>
+
+                        <div class="metric-value">
+                            <?php echo $total_count; ?>
                         </div>
-                        <div class="receipt-row">
-                            <span class="text-muted">Category</span>
-                            <strong id="receiptModalType" class="text-dark">—</strong>
-                        </div>
-                        <div class="receipt-row">
-                            <span class="text-muted">Scrap Weight</span>
-                            <span id="receiptModalWeight" class="fw-bold text-dark">—</span>
-                        </div>
-                        <div class="receipt-row">
-                            <span class="text-muted">Completion Time</span>
-                            <span id="receiptModalDate" class="text-dark fs-7">—</span>
+
+                        <div class="metric-help">
+                            Verified collection jobs
                         </div>
                     </div>
 
-                    <div class="p-3 bg-light rounded-3 border">
-                        <small class="text-muted d-block fw-semibold uppercase mb-1 fs-8">Pickup Address</small>
-                        <p class="mb-0 fs-7 text-dark fw-medium" id="receiptModalAddress">—</p>
+                    <div class="metric-card metric-blue">
+                        <div class="metric-top">
+                            <span class="metric-label">
+                                SCRAP RECOVERED
+                            </span>
+
+                            <span class="metric-icon">
+                                <i class="ri-scales-3-line"></i>
+                            </span>
+                        </div>
+
+                        <div class="metric-value">
+                            <?php echo number_format($total_weight, 2); ?>
+                            <small>KG</small>
+                        </div>
+
+                        <div class="metric-help">
+                            Total collected scrap weight
+                        </div>
+                    </div>
+
+                    <div class="metric-card metric-amber">
+                        <div class="metric-top">
+                            <span class="metric-label">
+                                VALUE COLLECTED
+                            </span>
+
+                            <span class="metric-icon">
+                                <i class="ri-money-rupee-circle-line"></i>
+                            </span>
+                        </div>
+
+                        <div class="metric-value">
+                            ₹<?php echo number_format($total_amount, 2); ?>
+                        </div>
+
+                        <div class="metric-help">
+                            Total amount from completed jobs
+                        </div>
+                    </div>
+
+                    <div class="metric-card metric-slate">
+                        <div class="metric-top">
+                            <span class="metric-label">
+                                SERVICE PINCODE
+                            </span>
+
+                            <span class="metric-icon">
+                                <i class="ri-map-pin-line"></i>
+                            </span>
+                        </div>
+
+                        <div class="metric-value">
+                            <?php echo e($collector_pincode); ?>
+                        </div>
+
+                        <div class="metric-help">
+                            Vehicle:
+                            <?php echo e($vehicle_no); ?>
+                        </div>
                     </div>
                 </div>
-                <div class="modal-footer bg-light px-4 py-3 border-top-0 d-flex gap-2">
-                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-3 flex-grow-1 fw-semibold" onclick="window.print()">
-                        <i class="ri-printer-line me-1"></i> Print
-                    </button>
-                    <button type="button" class="btn btn-emerald btn-sm rounded-3 flex-grow-1 text-white fw-bold" style="background: var(--eco-primary);" data-bs-dismiss="modal">
-                        Close
-                    </button>
+
+                <!-- Search and filter -->
+                <div class="filter-panel">
+                    <div class="search-wrapper">
+                        <i class="ri-search-2-line"></i>
+
+                        <input
+                            type="text"
+                            id="searchInput"
+                            class="search-input"
+                            placeholder="
+                                Search customer, address, phone,
+                                or scrap type...
+                            "
+                            oninput="filterPickups()"
+                        >
+                    </div>
+
+                    <div class="category-filters">
+                        <button
+                            type="button"
+                            class="category-button active"
+                            onclick="setCategory('all', this)"
+                        >
+                            All Types
+                        </button>
+
+                        <button
+                            type="button"
+                            class="category-button"
+                            onclick="setCategory('paper', this)"
+                        >
+                            Paper
+                        </button>
+
+                        <button
+                            type="button"
+                            class="category-button"
+                            onclick="setCategory('plastic', this)"
+                        >
+                            Plastic
+                        </button>
+
+                        <button
+                            type="button"
+                            class="category-button"
+                            onclick="setCategory('metal', this)"
+                        >
+                            Metal
+                        </button>
+
+                        <button
+                            type="button"
+                            class="category-button"
+                            onclick="setCategory('electronic', this)"
+                        >
+                            E-Waste
+                        </button>
+                    </div>
                 </div>
-            </div>
-        </div>
+
+                <?php if (!empty($pickups)): ?>
+                    <div
+                        id="completedGrid"
+                        class="completed-grid"
+                    >
+                        <?php foreach ($pickups as $pickup): ?>
+                            <?php
+                            $activity_id =
+                                (int)(
+                                    $pickup['activity_id'] ?? 0
+                                );
+
+                            $scrap_type =
+                                (string)(
+                                    $pickup['scrap_type'] ??
+                                    'General Scrap'
+                                );
+
+                            $customer_name =
+                                (string)(
+                                    $pickup['customer_name'] ??
+                                    'Unknown Customer'
+                                );
+
+                            $customer_phone =
+                                (string)(
+                                    $pickup['customer_phone'] ??
+                                    ''
+                                );
+
+                            $pickup_address =
+                                (string)(
+                                    $pickup['pickup_address'] ??
+                                    'Address unavailable'
+                                );
+
+                            $pickup_pincode =
+                                (string)(
+                                    $pickup['pickup_pincode'] ??
+                                    'N/A'
+                                );
+
+                            $scrap_weight =
+                                (float)(
+                                    $pickup['scrap_weight'] ??
+                                    0
+                                );
+
+                            $amount =
+                                (float)(
+                                    $pickup['amount'] ??
+                                    0
+                                );
+
+                            $completed_at =
+                                $pickup['completed_at'] ??
+                                null;
+
+                            $qr_status =
+                                (string)(
+                                    $pickup['qr_status'] ??
+                                    'Used'
+                                );
+
+                            $search_text = strtolower(
+                                $customer_name . ' ' .
+                                $customer_phone . ' ' .
+                                $pickup_address . ' ' .
+                                $pickup_pincode . ' ' .
+                                $scrap_type
+                            );
+                            ?>
+
+                            <article
+                                class="completed-card pickup-item"
+                                data-search="<?php echo e($search_text); ?>"
+                                data-category="<?php echo e(strtolower($scrap_type)); ?>"
+                            >
+                                <div>
+                                    <div class="card-top">
+                                        <span class="material-badge">
+                                            <i
+                                                class="<?php echo e(
+                                                    getScrapIcon($scrap_type)
+                                                ); ?>"
+                                            ></i>
+
+                                            <?php echo e($scrap_type); ?>
+                                        </span>
+
+                                        <span class="completed-badge">
+                                            <i class="ri-check-line"></i>
+                                            Completed
+                                        </span>
+                                    </div>
+
+                                    <div class="card-info">
+                                        <div class="info-row">
+                                            <div class="info-icon">
+                                                <i class="ri-user-3-line"></i>
+                                            </div>
+
+                                            <div>
+                                                <span class="info-label">
+                                                    Customer
+                                                </span>
+
+                                                <span class="info-value">
+                                                    <?php echo e($customer_name); ?>
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div class="info-row">
+                                            <div class="info-icon">
+                                                <i class="ri-phone-line"></i>
+                                            </div>
+
+                                            <div>
+                                                <span class="info-label">
+                                                    Phone
+                                                </span>
+
+                                                <span class="info-value">
+                                                    <?php
+                                                    echo $customer_phone !== ''
+                                                        ? e($customer_phone)
+                                                        : 'No phone provided';
+                                                    ?>
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div class="info-row">
+                                            <div class="info-icon">
+                                                <i class="ri-map-pin-2-line"></i>
+                                            </div>
+
+                                            <div>
+                                                <span class="info-label">
+                                                    Pickup Address
+                                                </span>
+
+                                                <span class="info-value">
+                                                    <?php echo e($pickup_address); ?>
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="card-summary">
+                                        <div class="summary-box">
+                                            <span>Weight</span>
+
+                                            <strong>
+                                                <?php echo number_format($scrap_weight, 2); ?>
+                                                KG
+                                            </strong>
+                                        </div>
+
+                                        <div class="summary-box amount">
+                                            <span>Amount</span>
+
+                                            <strong>
+                                                ₹<?php echo number_format($amount, 2); ?>
+                                            </strong>
+                                        </div>
+                                    </div>
+
+                                    <div class="card-summary">
+                                        <div class="summary-box">
+                                            <span>Completed On</span>
+
+                                            <strong
+                                                style="
+                                                    font-size: 11px;
+                                                "
+                                            >
+                                                <?php echo e(
+                                                    formatCompletedDate(
+                                                        $completed_at
+                                                    )
+                                                ); ?>
+                                            </strong>
+                                        </div>
+
+                                        <div class="summary-box">
+                                            <span>QR Status</span>
+
+                                            <strong
+                                                style="
+                                                    color: #166534;
+                                                    font-size: 11px;
+                                                "
+                                            >
+                                                <?php echo e($qr_status); ?>
+                                            </strong>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="card-footer">
+                                    <small>
+                                        Activity #
+                                        <?php echo $activity_id; ?>
+                                    </small>
+
+                                    <?php if ($customer_phone !== ''): ?>
+                                        <a
+                                            href="tel:<?php echo e($customer_phone); ?>"
+                                            class="details-button"
+                                        >
+                                            <i class="ri-phone-line"></i>
+                                            Contact
+                                        </a>
+                                    <?php endif; ?>
+                                </div>
+                            </article>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <div
+                        id="noSearchResults"
+                        class="empty-state"
+                        style="display: none; margin-top: 18px;"
+                    >
+                        <div class="empty-icon">
+                            <i class="ri-search-line"></i>
+                        </div>
+
+                        <h3>
+                            No Matching Pickups
+                        </h3>
+
+                        <p>
+                            Try another customer name, scrap type,
+                            address, or phone number.
+                        </p>
+                    </div>
+                <?php else: ?>
+                    <div class="empty-state">
+                        <div class="empty-icon">
+                            <i class="ri-inbox-2-line"></i>
+                        </div>
+
+                        <h3>
+                            No Completed Pickups Yet
+                        </h3>
+
+                        <p>
+                            Completed collection jobs will appear here
+                            after you verify them.
+                        </p>
+                    </div>
+                <?php endif; ?>
+            </section>
+        </main>
     </div>
-
-    <div class="mobile-bottom-nav d-md-none">
-        <a href="dashboard.php" class="nav-item-btn">
-            <i class="ri-dashboard-3-line"></i>
-            <span>Home</span>
-        </a>
-        <a href="assigned_pickups.php" class="nav-item-btn">
-            <i class="ri-time-line"></i>
-            <span>Assigned</span>
-        </a>
-        <a href="completed_pickups.php" class="nav-item-btn active">
-            <i class="ri-checkbox-circle-line"></i>
-            <span>Completed</span>
-        </a>
-        <a href="../logout.php" class="nav-item-btn text-danger">
-            <i class="ri-logout-box-r-line"></i>
-            <span>Logout</span>
-        </a>
-    </div>
-
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const searchInput = document.getElementById('searchInput');
-            const categoryBtns = document.querySelectorAll('.category-pill-btn');
-            const rows = document.querySelectorAll('.pickup-row');
-            const noMatchAlert = document.getElementById('noMatchAlert');
+        let selectedCategory = 'all';
 
-            let currentCategory = 'ALL';
+        const sidebar =
+            document.getElementById('sidebar');
 
-            function filterRows() {
-                const query = searchInput.value.toLowerCase().trim();
-                let visibleCount = 0;
+        const notificationDropdown =
+            document.getElementById(
+                'notificationDropdown'
+            );
 
-                rows.forEach(row => {
-                    const id = row.getAttribute('data-id').toLowerCase();
-                    const customer = row.getAttribute('data-customer');
-                    const phone = row.getAttribute('data-phone');
-                    const category = row.getAttribute('data-category');
-                    const address = row.getAttribute('data-address');
+        function toggleSidebar() {
+            sidebar.classList.toggle('open');
+        }
 
-                    const matchesSearch = !query || 
-                        id.includes(query) || 
-                        customer.includes(query) || 
-                        phone.includes(query) || 
-                        address.includes(query) ||
-                        category.toLowerCase().includes(query);
+        function toggleNotifications(event) {
+            event.stopPropagation();
 
-                    const matchesCategory = (currentCategory === 'ALL') || 
-                        category.toLowerCase().includes(currentCategory.toLowerCase());
+            notificationDropdown.classList.toggle(
+                'open'
+            );
+        }
 
-                    if (matchesSearch && matchesCategory) {
-                        row.style.display = '';
-                        visibleCount++;
-                    } else {
-                        row.style.display = 'none';
-                    }
-                });
+        document.addEventListener(
+            'click',
+            function (event) {
+                const notificationWrap =
+                    document.querySelector(
+                        '.notification-wrap'
+                    );
 
-                if (noMatchAlert) {
-                    if (visibleCount === 0 && rows.length > 0) {
-                        noMatchAlert.classList.remove('d-none');
-                    } else {
-                        noMatchAlert.classList.add('d-none');
-                    }
+                if (
+                    notificationWrap &&
+                    !notificationWrap.contains(
+                        event.target
+                    )
+                ) {
+                    notificationDropdown.classList.remove(
+                        'open'
+                    );
                 }
             }
+        );
 
-            if (searchInput) {
-                searchInput.addEventListener('input', filterRows);
-            }
+        function setCategory(category, button) {
+            selectedCategory = category;
 
-            categoryBtns.forEach(btn => {
-                btn.addEventListener('click', function () {
-                    categoryBtns.forEach(b => b.classList.remove('active'));
-                    this.classList.add('active');
-                    currentCategory = this.getAttribute('data-category');
-                    filterRows();
+            document
+                .querySelectorAll('.category-button')
+                .forEach(function (item) {
+                    item.classList.remove('active');
                 });
+
+            button.classList.add('active');
+
+            filterPickups();
+        }
+
+        function filterPickups() {
+            const searchInput =
+                document.getElementById(
+                    'searchInput'
+                );
+
+            const searchValue =
+                searchInput.value
+                    .toLowerCase()
+                    .trim();
+
+            const items =
+                document.querySelectorAll(
+                    '.pickup-item'
+                );
+
+            let visibleCount = 0;
+
+            items.forEach(function (item) {
+                const itemSearch =
+                    item.dataset.search || '';
+
+                const itemCategory =
+                    item.dataset.category || '';
+
+                const searchMatches =
+                    itemSearch.includes(
+                        searchValue
+                    );
+
+                const categoryMatches =
+                    selectedCategory === 'all' ||
+                    itemCategory.includes(
+                        selectedCategory
+                    );
+
+                const visible =
+                    searchMatches &&
+                    categoryMatches;
+
+                item.style.display =
+                    visible ? '' : 'none';
+
+                if (visible) {
+                    visibleCount++;
+                }
             });
 
-            // Receipt Modal Populator
-            const receiptModalEl = document.getElementById('receiptModal');
-            if (receiptModalEl) {
-                const receiptModal = new bootstrap.Modal(receiptModalEl);
-                document.querySelectorAll('.btn-view-receipt').forEach(btn => {
-                    btn.addEventListener('click', function () {
-                        document.getElementById('receiptModalId').innerText = this.getAttribute('data-id');
-                        document.getElementById('receiptModalCustomer').innerText = this.getAttribute('data-customer');
-                        document.getElementById('receiptModalPhone').innerText = this.getAttribute('data-phone');
-                        document.getElementById('receiptModalAddress').innerText = this.getAttribute('data-address');
-                        document.getElementById('receiptModalType').innerText = this.getAttribute('data-type');
-                        document.getElementById('receiptModalWeight').innerText = this.getAttribute('data-weight') + ' KG';
-                        document.getElementById('receiptModalAmount').innerText = this.getAttribute('data-amount');
-                        document.getElementById('receiptModalDate').innerText = this.getAttribute('data-date');
-                        receiptModal.show();
-                    });
-                });
+            const noSearchResults =
+                document.getElementById(
+                    'noSearchResults'
+                );
+
+            if (noSearchResults) {
+                noSearchResults.style.display =
+                    visibleCount === 0
+                        ? 'block'
+                        : 'none';
             }
-        });
+        }
     </script>
 </body>
-
 </html>
-<?php 
-if (isset($stmt)) {
-    $stmt->close(); 
-}
-?>
