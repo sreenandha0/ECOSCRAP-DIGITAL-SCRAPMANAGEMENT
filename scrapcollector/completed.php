@@ -376,150 +376,7 @@ function formatCompletedDate(?string $date): string
             min-height: 100vh;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Sidebar
-        |--------------------------------------------------------------------------
-        */
-
-        .sidebar {
-            position: fixed;
-            inset: 0 auto 0 0;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            width: 256px;
-            border-right: 1px solid #e5e7eb;
-            background: var(--white);
-            transition: transform 0.3s ease;
-        }
-
-        .sidebar-header {
-            display: flex;
-            align-items: center;
-            gap: 11px;
-            padding: 20px;
-            border-bottom: 1px solid #f1f5f9;
-        }
-
-        .logo-image {
-            display: block;
-            width: 45px;
-            height: 45px;
-            object-fit: contain;
-            border-radius: 12px;
-        }
-
-        .logo-name {
-            color: var(--text-dark);
-            font-size: 17px;
-            font-weight: 800;
-            letter-spacing: -0.04em;
-        }
-
-        .logo-subtitle {
-            margin-top: 3px;
-            color: #059669;
-            font-size: 9px;
-            font-weight: 800;
-            letter-spacing: 0.13em;
-        }
-
-        .sidebar-nav {
-            display: grid;
-            gap: 6px;
-            padding: 22px 14px;
-        }
-
-        .nav-link {
-            display: flex;
-            align-items: center;
-            gap: 11px;
-            min-height: 44px;
-            padding: 0 13px;
-            border-radius: 11px;
-            color: #64748b;
-            font-size: 12px;
-            font-weight: 600;
-            transition: 0.2s ease;
-        }
-
-        .nav-link i {
-            color: #94a3b8;
-            font-size: 18px;
-        }
-
-        .nav-link:hover {
-            color: var(--eco-primary);
-            background: #f0f8f0;
-        }
-
-        .nav-link.active {
-            color: #166534;
-            background: #eaf6ea;
-            box-shadow: 0 3px 10px rgba(46, 125, 50, 0.06);
-        }
-
-        .nav-link.active i {
-            color: var(--eco-primary);
-        }
-
-        .sidebar-footer {
-            padding: 17px 14px;
-            border-top: 1px solid #f1f5f9;
-        }
-
-        .scan-button {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            min-height: 42px;
-            border-radius: 11px;
-            color: var(--white);
-            background: var(--eco-primary);
-            font-size: 11px;
-            font-weight: 700;
-            transition: 0.2s ease;
-        }
-
-        .scan-button:hover {
-            background: #256b29;
-        }
-
-        .database-status {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-top: 14px;
-            padding: 0 5px;
-            color: #94a3b8;
-            font-size: 10px;
-        }
-
-        .database-status strong {
-            color: #475569;
-        }
-
-        .database-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #10b981;
-            box-shadow: 0 0 0 4px #dcfce7;
-        }
-
-        .logout-link {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 13px;
-            padding: 7px 5px;
-            color: #c45b5b;
-            font-size: 11px;
-            font-weight: 700;
-        }
+       
 
         /*
         |--------------------------------------------------------------------------
@@ -528,10 +385,11 @@ function formatCompletedDate(?string $date): string
         */
 
         .main {
-            flex: 1;
-            min-width: 0;
-            margin-left: 256px;
-        }
+    flex: 1;
+    min-width: 0;
+    margin-left: 0;
+    width: 100%;
+}
 
         .topbar {
             position: sticky;
@@ -1275,100 +1133,7 @@ function formatCompletedDate(?string $date): string
 <body>
     <div class="app">
 
-        <!-- Sidebar -->
-        <aside
-            id="sidebar"
-            class="sidebar"
-        >
-            <div>
-                <div class="sidebar-header">
-                    <img
-                        src="../assets/logo/ecoscrap-logo.png"
-                        alt="EcoScrap Logo"
-                        class="logo-image"
-                    >
-
-                    <div>
-                        <div class="logo-name">
-                            ECOSCRAP
-                        </div>
-
-                        <div class="logo-subtitle">
-                            COLLECTOR PORTAL
-                        </div>
-                    </div>
-                </div>
-
-                <nav class="sidebar-nav">
-                    <a
-                        href="dashboard.php"
-                        class="nav-link"
-                    >
-                        <i class="ri-dashboard-line"></i>
-                        <span>Dashboard</span>
-                    </a>
-
-                    <a
-                        href="assigned_requests.php"
-                        class="nav-link"
-                    >
-                        <i class="ri-truck-ramp-box-line"></i>
-                        <span>Assigned Requests</span>
-                    </a>
-
-                    <a
-                        href="verify_qr.php"
-                        class="nav-link"
-                    >
-                        <i class="ri-qr-scan-2-line"></i>
-                        <span>Verify QR Codes</span>
-                    </a>
-
-                    <a
-                        href="completed.php"
-                        class="nav-link active"
-                    >
-                        <i class="ri-checkbox-circle-line"></i>
-                        <span>Completed Pickups</span>
-                    </a>
-
-                    <a
-                        href="profile.php"
-                        class="nav-link"
-                    >
-                        <i class="ri-id-card-line"></i>
-                        <span>Collector Profile</span>
-                    </a>
-                </nav>
-            </div>
-
-            <div class="sidebar-footer">
-                <a
-                    href="verify_qr.php"
-                    class="scan-button"
-                >
-                    <i class="ri-camera-line"></i>
-                    <span>Scan Customer QR</span>
-                </a>
-
-                <div class="database-status">
-                    <span>
-                        Database:
-                        <strong>Connected</strong>
-                    </span>
-
-                    <span class="database-dot"></span>
-                </div>
-
-                <a
-                    href="../logout.php"
-                    class="logout-link"
-                >
-                    <i class="ri-logout-box-r-line"></i>
-                    <span>Logout</span>
-                </a>
-            </div>
-        </aside>
+       
 
         <!-- Main -->
         <main class="main">

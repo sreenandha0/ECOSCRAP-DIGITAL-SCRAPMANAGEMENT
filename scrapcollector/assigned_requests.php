@@ -420,30 +420,10 @@ function scrapIcon(string $scrap_type): string
         */
 
         .app {
-            display: flex;
-            min-height: 100vh;
-        }
+    min-height: 100vh;
+    width: 100%;
+}
 
-        .sidebar {
-            position: fixed;
-            inset: 0 auto 0 0;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            width: 256px;
-            border-right: 1px solid #e5e7eb;
-            background: var(--white);
-            transition: transform 0.3s ease;
-        }
-
-        .sidebar-header {
-            display: flex;
-            align-items: center;
-            gap: 11px;
-            padding: 22px 20px;
-            border-bottom: 1px solid #f1f5f9;
-        }
 
         .logo-mark {
             display: flex;
@@ -479,115 +459,9 @@ function scrapIcon(string $scrap_type): string
             letter-spacing: 0.13em;
         }
 
-        .sidebar-nav {
-            display: grid;
-            gap: 6px;
-            padding: 22px 14px;
-        }
+       
 
-        .nav-link {
-            display: flex;
-            align-items: center;
-            gap: 11px;
-            min-height: 44px;
-            padding: 0 13px;
-            border-radius: 11px;
-            color: #64748b;
-            font-size: 12px;
-            font-weight: 600;
-            transition: 0.2s ease;
-        }
-
-        .nav-link i {
-            color: #94a3b8;
-            font-size: 18px;
-        }
-
-        .nav-link:hover {
-            color: var(--eco-primary);
-            background: #f0f8f0;
-        }
-
-        .nav-link.active {
-            color: #166534;
-            background: #eaf6ea;
-            box-shadow: 0 3px 10px rgba(46, 125, 50, 0.06);
-        }
-
-        .nav-link.active i {
-            color: var(--eco-primary);
-        }
-
-        .nav-count {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 22px;
-            height: 21px;
-            margin-left: auto;
-            padding: 0 6px;
-            border-radius: 7px;
-            color: var(--white);
-            background: var(--eco-primary);
-            font-size: 10px;
-            font-weight: 800;
-        }
-
-        .sidebar-footer {
-            padding: 17px 14px;
-            border-top: 1px solid #f1f5f9;
-        }
-
-        .scan-button {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            min-height: 42px;
-            border-radius: 11px;
-            color: var(--white);
-            background: var(--eco-primary);
-            font-size: 11px;
-            font-weight: 700;
-            transition: 0.2s ease;
-        }
-
-        .scan-button:hover {
-            background: #256b29;
-        }
-
-        .database-status {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-top: 14px;
-            padding: 0 5px;
-            color: #94a3b8;
-            font-size: 10px;
-        }
-
-        .database-status strong {
-            color: #475569;
-        }
-
-        .database-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #10b981;
-            box-shadow: 0 0 0 4px #dcfce7;
-        }
-
-        .logout-link {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 13px;
-            padding: 7px 5px;
-            color: #c45b5b;
-            font-size: 11px;
-            font-weight: 700;
-        }
+        
 
         /*
         |--------------------------------------------------------------------------
@@ -596,10 +470,9 @@ function scrapIcon(string $scrap_type): string
         */
 
         .main {
-            flex: 1;
-            min-width: 0;
-            margin-left: 256px;
-        }
+    width: 100%;
+    min-width: 0;
+}
 
         .topbar {
             position: sticky;
@@ -1530,102 +1403,7 @@ function scrapIcon(string $scrap_type): string
 <body>
     <div class="app">
 
-        <!-- Sidebar -->
-        <aside
-            id="sidebar"
-            class="sidebar"
-        >
-            <div>
-                <div class="sidebar-header">
-                    <div class="logo-mark">
-                        <i class="ri-recycle-line"></i>
-                    </div>
-
-                    <div>
-                        <div class="logo-name">
-                            ECOSCRAP
-                        </div>
-
-                        <div class="logo-subtitle">
-                            COLLECTOR PORTAL
-                        </div>
-                    </div>
-                </div>
-
-                <nav class="sidebar-nav">
-                    <a
-                        href="dashboard.php"
-                        class="nav-link"
-                    >
-                        <i class="ri-dashboard-line"></i>
-                        <span>Dashboard</span>
-                    </a>
-
-                    <a
-                        href="assigned_requests.php"
-                        class="nav-link active"
-                    >
-                        <i class="ri-truck-ramp-box-line"></i>
-                        <span>Assigned Requests</span>
-
-                        <span class="nav-count">
-                            <?php echo $total_count; ?>
-                        </span>
-                    </a>
-
-                    <a
-                        href="verify_qr.php"
-                        class="nav-link"
-                    >
-                        <i class="ri-qr-scan-2-line"></i>
-                        <span>Verify QR Codes</span>
-                    </a>
-
-                    <a
-                        href="completed.php"
-                        class="nav-link"
-                    >
-                        <i class="ri-checkbox-circle-line"></i>
-                        <span>Completed Pickups</span>
-                    </a>
-
-                    <a
-                        href="profile.php"
-                        class="nav-link"
-                    >
-                        <i class="ri-id-card-line"></i>
-                        <span>Collector Profile</span>
-                    </a>
-                </nav>
-            </div>
-
-            <div class="sidebar-footer">
-                <a
-                    href="verify_qr.php"
-                    class="scan-button"
-                >
-                    <i class="ri-camera-line"></i>
-                    <span>Scan Customer QR</span>
-                </a>
-
-                <div class="database-status">
-                    <span>
-                        Database:
-                        <strong>Connected</strong>
-                    </span>
-
-                    <span class="database-dot"></span>
-                </div>
-
-                <a
-                    href="../logout.php"
-                    class="logout-link"
-                >
-                    <i class="ri-logout-box-r-line"></i>
-                    <span>Logout</span>
-                </a>
-            </div>
-        </aside>
+        
 
         <!-- Main content -->
         <main class="main">
