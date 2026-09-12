@@ -432,13 +432,11 @@
 
                     <!-- Footer -->
                     <p class="login-footer">
-
-                        By continuing, you agree to EcoScrap's
-                        <a href="#">Terms</a>
-                        and
-                        <a href="#">Privacy Policy</a>.
-
-                    </p>
+    By continuing, you agree to EcoScrap's
+    <a href="terms.php">Terms</a>
+    and
+    <a href="privacy-policy.php">Privacy Policy</a>.
+</p>
 
                 </div>
 

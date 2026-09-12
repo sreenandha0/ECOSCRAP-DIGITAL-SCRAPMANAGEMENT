@@ -1660,3 +1660,9 @@ body {
     }
 
 }
+
+.form-input select,
+select.form-input {
+    appearance: none;
+    cursor: pointer;
+}

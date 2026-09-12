@@ -10,7 +10,11 @@ if (
 ) {
     redirect("../login.php");
 }
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
+$csrf_token = $_SESSION['csrf_token'];
 $collector_id = (int)$_SESSION['collector_id'];
 
 function e($value): string
@@ -1397,6 +1401,162 @@ function scrapIcon(string $scrap_type): string
                 flex-direction: column;
             }
         }
+        
+        .topbar {
+            height: 70px;
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 32px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text-main);
+            min-width: 0;
+        }
+
+        .brand-logo {
+            width: 42px;
+            height: 42px;
+            object-fit: contain;
+            display: block;
+            flex-shrink: 0;
+        }
+
+        .brand-name {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: var(--text-main);
+        }
+
+        .user-profile {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .icon-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background: #FFFFFF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .icon-btn:hover {
+            background: #F8FAFC;
+            color: var(--primary);
+            border-color: rgba(16, 185, 129, 0.35);
+            transform: translateY(-1px);
+        }
+
+        .avatar-pill {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #FFFFFF;
+            padding: 6px 14px 6px 8px;
+            border-radius: 30px;
+            border: 1px solid var(--border-color);
+            transition: border-color 0.2s ease;
+        }
+
+        .avatar-pill:hover {
+            border-color: rgba(16, 185, 129, 0.35);
+        }
+
+        .avatar {
+            width: 28px;
+            height: 28px;
+            background: var(--secondary);
+            color: #FFFFFF;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .content-area {
+            padding: 40px 20px;
+            max-width: 680px;
+            margin: 0 auto;
+            width: 100%;
+            flex: 1;
+        }
+
+        .page-header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .page-header h1 {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .page-header p {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .scanner-card {
+            background: var(--surface-card);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 28px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+            position: relative;
+        }
+
+        .camera-viewport {
+            width: 100%;
+            max-width: 400px;
+            height: 320px;
+            margin: 0 auto;
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+            background: #090D16;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid var(--border-color);
+        }
+
+        #reader {
+            width: 100% !important;
+            height: 100% !important;
+            border: none !important;
+        }
+
+        #reader video {
+            object-fit: cover !important;
+            width: 100% !important;
+            height: 100% !important;
+        }
     </style>
 </head>
 
@@ -1408,142 +1568,32 @@ function scrapIcon(string $scrap_type): string
         <!-- Main content -->
         <main class="main">
 
-            <!-- Header -->
-            <header class="topbar">
-                <div style="display: flex; align-items: center;">
-                    <button
-                        type="button"
-                        class="mobile-menu"
-                        onclick="toggleSidebar()"
-                    >
-                        <i class="ri-menu-line"></i>
-                    </button>
+            <!-- Header Topbar -->
+    <header class="topbar">
+        <a href="dashboard.php" class="brand-header">
+            <img src="../assets/logo/ecoscrap-logo.png" alt="EcoScrap" class="brand-logo">
+            <span class="brand-name">EcoScrap</span>
+        </a>
 
-                    <div>
-                        <div class="topbar-title">
-                            COLLECTOR OVERVIEW
-                        </div>
+        <div class="user-profile">
+            <a href="dashboard.php" class="icon-btn" title="Back to Dashboard">
+                <i class="ri-dashboard-line"></i>
+            </a>
 
-                        <div class="topbar-subtitle">
-                            Logged in as
-                            <strong>
-                                <?php echo e($collector_name); ?>
-                            </strong>
-                            · ID
-                            <?php echo $collector_id; ?>
-                        </div>
-                    </div>
+            <div class="avatar-pill">
+                <div class="avatar">
+                    <?= strtoupper(substr($collector_name, 0, 1)); ?>
                 </div>
+                <span style="font-size: 14px; font-weight: 600;">
+                    <?= htmlspecialchars($collector_name); ?>
+                </span>
+            </div>
 
-                <div class="topbar-actions">
-                    <div class="availability">
-                        <span class="availability-dot"></span>
-
-                        <span id="availabilityText">
-                            <?php echo e($availability_status); ?>
-                        </span>
-                    </div>
-
-                    <div class="notification-wrap">
-                        <button
-                            type="button"
-                            class="notification-button"
-                            onclick="toggleNotifications(event)"
-                            title="Notifications"
-                        >
-                            <i class="ri-notification-3-line"></i>
-
-                            <?php if ($unread_count > 0): ?>
-                                <span class="notification-badge"></span>
-                            <?php endif; ?>
-                        </button>
-
-                        <div
-                            id="notificationDropdown"
-                            class="notification-dropdown"
-                        >
-                            <div class="notification-heading">
-                                <h3>Notifications</h3>
-
-                                <p>
-                                    <?php echo $unread_count; ?>
-                                    unread notification(s)
-                                </p>
-                            </div>
-
-                            <?php if (empty($notifications)): ?>
-                                <div
-                                    style="
-                                        padding: 30px;
-                                        color: #64748b;
-                                        font-size: 11px;
-                                        text-align: center;
-                                    "
-                                >
-                                    No notifications yet.
-                                </div>
-                            <?php else: ?>
-                                <?php foreach ($notifications as $notification): ?>
-                                    <?php
-                                    $is_unread =
-                                        (int)(
-                                            $notification['is_read'] ?? 0
-                                        ) === 0;
-                                    ?>
-
-                                    <div
-                                        class="notification-item <?php echo $is_unread ? 'unread' : ''; ?>"
-                                    >
-                                        <strong>
-                                            <?php echo e(
-                                                $notification['title'] ??
-                                                'Notification'
-                                            ); ?>
-                                        </strong>
-
-                                        <p>
-                                            <?php echo e(
-                                                $notification['message'] ??
-                                                ''
-                                            ); ?>
-                                        </p>
-
-                                        <small>
-                                            <?php
-                                            echo e(
-                                                date(
-                                                    'd M Y, h:i A',
-                                                    strtotime(
-                                                        $notification['created_at'] ??
-                                                        'now'
-                                                    )
-                                                )
-                                            );
-                                            ?>
-                                        </small>
-                                    </div>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-
-                    <div class="profile-mini">
-                        <div class="avatar">
-                            <?php echo e($initials); ?>
-                        </div>
-
-                        <div>
-                            <div class="profile-name">
-                                <?php echo e($collector_name); ?>
-                            </div>
-
-                            <div class="profile-role">
-                                <?php echo e($vehicle_no); ?>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </header>
+            <a href="../logout.php" class="icon-btn" title="Logout">
+                <i class="ri-logout-box-r-line"></i>
+            </a>
+        </div>
+    </header>
 
             <section class="content">
 
@@ -1986,55 +2036,73 @@ function scrapIcon(string $scrap_type): string
 
                                 <div class="card-actions">
                                     <form
-                                        id="pickupForm<?php echo $activity_id; ?>"
-                                        action="accept_pickup.php"
-                                        method="post"
-                                    >
-                                        <input
-                                            type="hidden"
-                                            name="activity_id"
-                                            value="<?php echo $activity_id; ?>"
-                                        >
+    id="pickupForm<?php echo (int)$activity_id; ?>"
+    action="accept_pickup.php"
+    method="post"
+>
 
-                                        <button
-                                            type="button"
-                                            class="start-button"
-                                            onclick="openStartModal(
-                                                <?php echo $activity_id; ?>,
-                                                '<?php echo e($customer_name); ?>',
-                                                '<?php echo e($scrap_type); ?>',
-                                                '<?php echo number_format($scrap_weight, 2); ?>'
-                                            )"
-                                        >
-                                            <i class="ri-play-circle-fill"></i>
-                                            Start Pickup Job
-                                        </button>
-                                    </form>
+    <input
+        type="hidden"
+        name="activity_id"
+        value="<?php echo (int)$activity_id; ?>"
+    >
+
+    <input
+        type="hidden"
+        name="csrf_token"
+        value="<?php echo htmlspecialchars(
+            $csrf_token,
+            ENT_QUOTES,
+            'UTF-8'
+        ); ?>"
+    >
+
+    <button
+        type="button"
+        class="start-button"
+        onclick="openStartModal(
+            <?php echo (int)$activity_id; ?>,
+            '<?php echo e($customer_name); ?>',
+            '<?php echo e($scrap_type); ?>',
+            '<?php echo number_format($scrap_weight, 2); ?>'
+        )"
+    >
+        <i class="ri-play-circle-fill"></i>
+        Start Pickup Job
+    </button>
+
+</form>
 
                                     <form
-                                        action="reject_pickup.php"
-                                        method="post"
-                                        onsubmit="
-                                            return confirm(
-                                                'Are you sure you want to reject this pickup request?'
-                                            );
-                                        "
-                                    >
-                                        <input
-                                            type="hidden"
-                                            name="activity_id"
-                                            value="<?php echo $activity_id; ?>"
-                                        >
+    action="reject_pickup.php"
+    method="post"
+    onsubmit="return confirm('Are you sure you want to reject this pickup request?');"
+>
 
-                                        <button
-                                            type="submit"
-                                            class="reject-button"
-                                            style="width: 100%;"
-                                        >
-                                            <i class="ri-close-circle-line"></i>
-                                            Reject Pickup
-                                        </button>
-                                    </form>
+    <!-- Activity ID -->
+    <input
+        type="hidden"
+        name="activity_id"
+        value="<?php echo (int)$activity_id; ?>"
+    >
+
+    <!-- CSRF Token -->
+    <input
+        type="hidden"
+        name="csrf_token"
+        value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
+    >
+
+    <button
+        type="submit"
+        class="reject-button"
+        style="width: 100%;"
+    >
+        <i class="ri-close-circle-line"></i>
+        Reject Pickup
+    </button>
+
+</form>
                                 </div>
                             </article>
                         <?php endforeach; ?>

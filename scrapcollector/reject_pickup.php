@@ -5,46 +5,72 @@ session_start();
 require_once "../includes/db.php";
 require_once "../includes/functions.php";
 
+
 // ==========================================================
 // 1. AUTHORIZATION CHECK
 // ==========================================================
 if (
     !isset($_SESSION['collector_id']) ||
-    ($_SESSION['role'] ?? '') !== "Collector"
+    ($_SESSION['role'] ?? '') !== 'Collector'
 ) {
     redirect("../login.php");
 }
 
+
 // ==========================================================
-// 2. REQUEST METHOD & CSRF VERIFICATION
+// 2. REQUEST METHOD CHECK
 // ==========================================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+
     header("Location: assigned_requests.php");
     exit();
+
 }
 
+
+// ==========================================================
+// 3. CSRF VERIFICATION
+// ==========================================================
 verifyCsrfToken();
 
-$activity_id  = (int) ($_POST['id'] ?? 0);
-$collector_id = (int) $_SESSION['collector_id'];
+
+// ==========================================================
+// 4. GET POST DATA
+// ==========================================================
+$activity_id = (int) ($_POST['activity_id'] ?? 0);
+$collector_id = (int) ($_SESSION['collector_id'] ?? 0);
+
 
 if ($activity_id <= 0 || $collector_id <= 0) {
+
     $_SESSION['error'] = "Invalid pickup request.";
+
     header("Location: assigned_requests.php");
     exit();
+
 }
+
 
 try {
 
-    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+    // Enable MySQLi exception handling
+    mysqli_report(
+        MYSQLI_REPORT_ERROR |
+        MYSQLI_REPORT_STRICT
+    );
 
+
+    // ==========================================================
+    // START TRANSACTION
+    // ==========================================================
     $conn->begin_transaction();
+
 
     // ==========================================================
     // STEP 1: VERIFY ASSIGNED PICKUP & GET USER ID
     // ==========================================================
     $stmt = $conn->prepare("
-        SELECT 
+        SELECT
             activity_id,
             user_id
         FROM activity
@@ -54,25 +80,32 @@ try {
         FOR UPDATE
     ");
 
+
     $stmt->bind_param(
         "ii",
         $activity_id,
         $collector_id
     );
 
+
     $stmt->execute();
 
     $result = $stmt->get_result();
 
+
     if ($result->num_rows === 0) {
+
         throw new Exception(
             "Pickup request not found or is no longer available for rejection."
         );
+
     }
+
 
     $pickup = $result->fetch_assoc();
 
     $user_id = (int) $pickup['user_id'];
+
 
     $stmt->close();
 
@@ -86,22 +119,31 @@ try {
         WHERE collector_id = ?
     ");
 
+
     $stmt->bind_param(
         "i",
         $collector_id
     );
 
+
     $stmt->execute();
 
     $collectorResult = $stmt->get_result();
 
+
     if ($collectorResult->num_rows === 0) {
-        throw new Exception("Scrap collector account not found.");
+
+        throw new Exception(
+            "Scrap collector account not found."
+        );
+
     }
+
 
     $collector = $collectorResult->fetch_assoc();
 
     $collector_name = $collector['name'];
+
 
     $stmt->close();
 
@@ -117,19 +159,25 @@ try {
           AND status = 'Assigned'
     ");
 
+
     $stmt->bind_param(
         "ii",
         $activity_id,
         $collector_id
     );
 
+
     $stmt->execute();
 
+
     if ($stmt->affected_rows !== 1) {
+
         throw new Exception(
             "Failed to reject pickup request."
         );
+
     }
+
 
     $stmt->close();
 
@@ -143,10 +191,12 @@ try {
         WHERE collector_id = ?
     ");
 
+
     $stmt->bind_param(
         "i",
         $collector_id
     );
+
 
     $stmt->execute();
 
@@ -156,14 +206,17 @@ try {
     // ==========================================================
     // STEP 5: NOTIFY USER
     // ==========================================================
+    $notification_type = "pickup_rejected";
+    $reference_type = "activity";
+    $is_read = 0;
+
+
     $user_title = "Pickup Request Rejected";
+
 
     $user_message =
         "Your pickup request #{$activity_id} has been rejected by the assigned scrap collector ({$collector_name}). The admin may reassign your request.";
 
-    $notification_type = "pickup_rejected";
-    $reference_type = "activity";
-    $is_read = 0;
 
     $stmt = $conn->prepare("
         INSERT INTO notifications
@@ -192,6 +245,7 @@ try {
         )
     ");
 
+
     $stmt->bind_param(
         "isssisi",
         $user_id,
@@ -203,21 +257,30 @@ try {
         $is_read
     );
 
+
     $stmt->execute();
 
     $stmt->close();
 
 
     // ==========================================================
-    // STEP 6: NOTIFY ADMIN
+    // STEP 6: NOTIFY ALL ADMINS
     // ==========================================================
     $admin_title = "Pickup Request Rejected";
+
 
     $admin_message =
         "Scrap collector {$collector_name} has rejected pickup request #{$activity_id}. The request may require reassignment.";
 
-    $adminQuery = $conn->query("SELECT admin_id FROM admin");
-    if ($adminQuery) {
+
+    $adminQuery = $conn->query("
+        SELECT admin_id
+        FROM admin
+    ");
+
+
+    if ($adminQuery->num_rows > 0) {
+
         $stmt = $conn->prepare("
             INSERT INTO notifications
             (
@@ -245,8 +308,12 @@ try {
             )
         ");
 
+
         while ($admin = $adminQuery->fetch_assoc()) {
+
             $admin_id = (int) $admin['admin_id'];
+
+
             $stmt->bind_param(
                 "isssisi",
                 $admin_id,
@@ -257,36 +324,67 @@ try {
                 $reference_type,
                 $is_read
             );
+
+
             $stmt->execute();
+
         }
+
+
         $stmt->close();
+
     }
 
 
     // ==========================================================
-    // STEP 7: COMMIT
+    // STEP 7: COMMIT TRANSACTION
     // ==========================================================
     $conn->commit();
 
+
+    // ==========================================================
+    // SUCCESS MESSAGE
+    // ==========================================================
     $_SESSION['msg'] =
         "Pickup request rejected successfully. The user and admin have been notified.";
 
-    header("Location: assigned_requests.php?success=rejected");
+
+    header(
+        "Location: assigned_requests.php?success=rejected"
+    );
+
     exit();
 
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
 
+    // ==========================================================
+    // ROLLBACK TRANSACTION
+    // ==========================================================
     try {
+
         $conn->rollback();
-    } catch (Exception $rollbackError) {
-        // Ignore rollback error
+
+    } catch (Throwable $rollbackError) {
+
+        // Ignore rollback errors
+
     }
 
+
+    // ==========================================================
+    // ERROR MESSAGE
+    // ==========================================================
     $_SESSION['error'] =
         "Failed to reject pickup: " . $e->getMessage();
 
-    header("Location: assigned_requests.php");
+
+    header(
+        "Location: assigned_requests.php"
+    );
+
     exit();
+
 }
+
 ?>

@@ -3,7 +3,6 @@ session_start();
 
 require_once "../includes/db.php";
 
-
 /*
 |--------------------------------------------------------------------------
 | Authentication
@@ -16,7 +15,6 @@ if (!isset($_SESSION["user_id"])) {
 }
 
 $user_id = (int)$_SESSION["user_id"];
-
 
 /*
 |--------------------------------------------------------------------------
@@ -33,6 +31,13 @@ function e($value): string
     );
 }
 
+/*
+|--------------------------------------------------------------------------
+| Flash Message (optional, if you use it on this page)
+|--------------------------------------------------------------------------
+*/
+$flash = $_SESSION["flash"] ?? "";
+unset($_SESSION["flash"]);
 
 /*
 |--------------------------------------------------------------------------
@@ -42,7 +47,6 @@ function e($value): string
 
 $notifications = [];
 $unreadNotifications = 0;
-
 
 /*
 |--------------------------------------------------------------------------
@@ -73,7 +77,6 @@ if (
     header("Location: notifications.php");
     exit();
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -116,7 +119,6 @@ if ($stmt) {
     $stmt->close();
 }
 
-
 /*
 |--------------------------------------------------------------------------
 | Notification Icons
@@ -144,7 +146,6 @@ function getNotificationIcon(string $type): string
 
     return $icons[$type] ?? "ri-notification-3-line";
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -181,7 +182,6 @@ function getNotificationClass(string $type): string
             "notification-default"
     };
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -227,7 +227,6 @@ function formatNotificationDateTime($date): string
 
     return date("d M Y, h:i A", $timestamp);
 }
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -286,8 +285,15 @@ function formatNotificationDateTime($date): string
             --neutral-light: #f1f5f9;
 
             --shadow: 0 12px 30px rgba(20, 83, 45, .07);
-        }
 
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+
+            --eco-primary: #16a34a;
+            --eco-dark: #0f172a;
+            --eco-light: #dcfce7;
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -320,7 +326,6 @@ function formatNotificationDateTime($date): string
             font: inherit;
         }
 
-
         /*
         |--------------------------------------------------------------------------
         | Main Content
@@ -337,6 +342,177 @@ function formatNotificationDateTime($date): string
             margin: 0 auto;
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Page Top (shared style for notifications & pickup request)
+        |--------------------------------------------------------------------------
+        */
+
+        .page-top {
+            max-width: 1520px;
+            margin: 0 auto 22px;
+        }
+
+        .breadcrumb {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-muted, var(--muted));
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+
+        .breadcrumb a {
+            color: var(--eco-primary);
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        .page-title {
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: clamp(28px, 3vw, 38px);
+            color: var(--eco-dark);
+            letter-spacing: -0.7px;
+            margin-bottom: 8px;
+        }
+
+        .page-desc {
+            color: var(--text-muted, var(--muted));
+            font-size: 14px;
+            line-height: 1.65;
+            max-width: 780px;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Page Alert
+        |--------------------------------------------------------------------------
+        */
+
+        .user-page-alert {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            max-width: 1520px;
+            margin: 18px auto 0;
+            padding: 13px 15px;
+            border: 1px solid #bde5c0;
+            border-radius: var(--radius-sm);
+            background: #effaf0;
+            color: #256029;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Impact Card (adapted to notifications page style)
+        |--------------------------------------------------------------------------
+        */
+
+        .impact-card {
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 25px;
+            min-height: 150px;
+            margin: 24px auto 25px;
+            padding: 27px 31px;
+            border-radius: var(--radius-lg);
+            background: linear-gradient(120deg, rgba(0, 77, 64, 0.97), rgba(46, 125, 50, 0.95));
+            color: white;
+            box-shadow: var(--shadow);
+            max-width: 1100px; /* match notifications page width */
+        }
+
+        .impact-card::before {
+            position: absolute;
+            top: -75px;
+            right: 13%;
+            width: 210px;
+            height: 210px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 50%;
+            content: "";
+        }
+
+        .impact-card::after {
+            position: absolute;
+            top: -35px;
+            right: 5%;
+            width: 180px;
+            height: 180px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 50%;
+            content: "";
+        }
+
+        .impact-info {
+            position: relative;
+            z-index: 2;
+            max-width: 700px;
+        }
+
+        .impact-info .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 10px;
+            color: var(--eco-light);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+        }
+
+        .impact-info h2 {
+            margin-bottom: 7px;
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: 20px;
+        }
+
+        .impact-info p {
+            max-width: 560px;
+            color: rgba(255,255,255,0.72);
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .impact-progress-wrap {
+            position: relative;
+            z-index: 2;
+            width: 260px;
+            flex: 0 0 260px;
+        }
+
+        .impact-progress-head {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: rgba(255,255,255,0.75);
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .impact-progress-head strong {
+            color: white;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: rgba(255,255,255,0.18);
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .progress-bar span {
+            display: block;
+            height: 100%;
+            width: 100%;
+            background: #86efac;
+            border-radius: 999px;
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -376,7 +552,6 @@ function formatNotificationDateTime($date): string
             line-height: 1.6;
         }
 
-
         /*
         |--------------------------------------------------------------------------
         | Mark Read Button
@@ -415,7 +590,6 @@ function formatNotificationDateTime($date): string
         .mark-read-btn:active {
             transform: translateY(0);
         }
-
 
         /*
         |--------------------------------------------------------------------------
@@ -490,7 +664,6 @@ function formatNotificationDateTime($date): string
             color: var(--primary-dark);
         }
 
-
         /*
         |--------------------------------------------------------------------------
         | Notifications Container
@@ -506,7 +679,6 @@ function formatNotificationDateTime($date): string
             background: var(--surface);
             box-shadow: var(--shadow);
         }
-
 
         /*
         |--------------------------------------------------------------------------
@@ -543,7 +715,6 @@ function formatNotificationDateTime($date): string
         .notification-page-item.unread:hover {
             background: #f3fcf5;
         }
-
 
         /*
         |--------------------------------------------------------------------------
@@ -589,7 +760,6 @@ function formatNotificationDateTime($date): string
             color: var(--neutral);
         }
 
-
         /*
         |--------------------------------------------------------------------------
         | Notification Content
@@ -624,7 +794,6 @@ function formatNotificationDateTime($date): string
             line-height: 1.65;
         }
 
-
         /*
         |--------------------------------------------------------------------------
         | Unread Dot
@@ -646,7 +815,6 @@ function formatNotificationDateTime($date): string
             box-shadow:
                 0 0 0 4px var(--primary-light);
         }
-
 
         /*
         |--------------------------------------------------------------------------
@@ -712,7 +880,6 @@ function formatNotificationDateTime($date): string
             transform: translateX(3px);
         }
 
-
         /*
         |--------------------------------------------------------------------------
         | Empty State
@@ -774,7 +941,7 @@ function formatNotificationDateTime($date): string
             color: #ffffff;
 
             font-size: 13px;
-            font-weight: 850;
+            font-weight: 800;
             text-decoration: none;
 
             box-shadow: 0 9px 19px rgba(22, 163, 74, .2);
@@ -786,7 +953,6 @@ function formatNotificationDateTime($date): string
             transform: translateY(-2px);
             box-shadow: 0 12px 22px rgba(22, 163, 74, .25);
         }
-
 
         /*
         |--------------------------------------------------------------------------
@@ -800,7 +966,6 @@ function formatNotificationDateTime($date): string
             outline: 3px solid rgba(22, 163, 74, .28);
             outline-offset: 3px;
         }
-
 
         /*
         |--------------------------------------------------------------------------
@@ -821,8 +986,19 @@ function formatNotificationDateTime($date): string
             .mark-read-btn {
                 width: 100%;
             }
-        }
 
+            .impact-card {
+                flex-direction: column;
+                align-items: flex-start;
+                min-height: auto;
+                padding: 22px;
+            }
+
+            .impact-progress-wrap {
+                width: 100%;
+                flex: none;
+            }
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -934,7 +1110,6 @@ function formatNotificationDateTime($date): string
             }
         }
 
-
         /*
         |--------------------------------------------------------------------------
         | Very Small Screens
@@ -966,49 +1141,59 @@ function formatNotificationDateTime($date): string
 
 <body>
 
-
     <!--
     |--------------------------------------------------------------------------
     | Your Existing Sidebar/Header
     |--------------------------------------------------------------------------
-    
-    Paste the exact sidebar and header HTML from dashboard.php here.
-
-    For example:
-
-    <aside class="sidebar">
-        ...
-    </aside>
-
-    <header class="top-header">
-        ...
-    </header>
     -->
-
 
     <main class="main-content">
 
         <div class="notifications-page">
 
-            <div class="notifications-header">
-
-                <div>
-
-                    <div class="page-label">
-                        NOTIFICATION CENTER
-                    </div>
-
-                    <h1>
-                        Notifications
-                    </h1>
-
-                    <p>
-                        Stay updated with your scrap pickup requests
-                        and account activity.
-                    </p>
-
+            <!-- Page Top / Breadcrumb (matching your Create Pickup Request page) -->
+            <div class="page-top">
+                <div class="breadcrumb">
+                    <a href="dashboard.php"><i class="ri-arrow-left-line"></i> Back</a>
+                    <span>/</span>
+                    <span>Notifications</span>
                 </div>
 
+                <h1 class="page-title">Notifications</h1>
+                <p class="page-desc">
+                    Stay updated with your scrap pickup requests and account activity.
+                    All notifications are listed below.
+                </p>
+            </div>
+
+            <?php if (!empty($flash)): ?>
+                <div class="user-page-alert">
+                    <i class="ri-information-line"></i>
+                    <span><?= e($flash) ?></span>
+                </div>
+            <?php endif; ?>
+
+            <!-- Impact Card (styled to match notification page width & theme) -->
+            <section class="impact-card">
+                <div class="impact-info">
+                    <p class="eyebrow"><i class="ri-recycle-line"></i> Ready to recycle?</p>
+                    <h2>Schedule a convenient scrap pickup</h2>
+                    <p>Help keep recyclable materials out of landfills by submitting a pickup request in just a few steps.</p>
+                </div>
+
+                <div class="impact-progress-wrap">
+                    <div class="impact-progress-head">
+                        <strong>Request</strong>
+                        <span>Ready</span>
+                    </div>
+                    <div class="progress-bar"><span></span></div>
+                </div>
+            </section>
+
+            <!-- Notifications Header (original style, now below impact card) -->
+            <div class="notifications-header">
+
+                
 
                 <?php if ($unreadNotifications > 0): ?>
 
@@ -1030,13 +1215,11 @@ function formatNotificationDateTime($date): string
 
             </div>
 
-
             <div class="notification-summary">
 
                 <div class="notification-summary-icon">
                     <i class="ri-notification-3-line"></i>
                 </div>
-
 
                 <div>
 
@@ -1049,7 +1232,6 @@ function formatNotificationDateTime($date): string
                     </strong>
 
                 </div>
-
 
                 <?php if ($unreadNotifications > 0): ?>
 
@@ -1067,7 +1249,6 @@ function formatNotificationDateTime($date): string
                 <?php endif; ?>
 
             </div>
-
 
             <div class="notifications-list-page">
 
@@ -1132,7 +1313,6 @@ function formatNotificationDateTime($date): string
 
                             </div>
 
-
                             <div class="notification-page-content">
 
                                 <div class="notification-page-top">
@@ -1153,7 +1333,6 @@ function formatNotificationDateTime($date): string
 
                                     </div>
 
-
                                     <?php if ($isUnread): ?>
 
                                         <span
@@ -1164,7 +1343,6 @@ function formatNotificationDateTime($date): string
                                     <?php endif; ?>
 
                                 </div>
-
 
                                 <div class="notification-page-footer">
 
@@ -1178,7 +1356,6 @@ function formatNotificationDateTime($date): string
                                         ) ?>
                                     </span>
 
-
                                     <span class="notification-type">
                                         <?= e(
                                             ucwords(
@@ -1190,7 +1367,6 @@ function formatNotificationDateTime($date): string
                                             )
                                         ) ?>
                                     </span>
-
 
                                     <?php if (
                                         !empty(
@@ -1208,7 +1384,7 @@ function formatNotificationDateTime($date): string
                                     ): ?>
 
                                         <a
-                                            href="my_pickups.php"
+                                            href="track_status.php?id=<?= (int)$notification['reference_id']; ?>"
                                             class="view-pickup-link"
                                         >
                                             View Pickup
@@ -1234,5 +1410,4 @@ function formatNotificationDateTime($date): string
     </main>
 
 </body>
-
 </html>

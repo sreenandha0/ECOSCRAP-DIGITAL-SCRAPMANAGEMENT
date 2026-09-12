@@ -569,154 +569,219 @@ require_once "../includes/functions.php";
                     <div class="form-row">
 
 
-                        <div class="form-group">
+<!-- ==============================
+     PLACE
+=============================== -->
 
-                            <label
-                                for="place"
-                                class="form-label"
-                            >
+<div class="form-group">
 
-                                Place
+    <label
+        for="place"
+        class="form-label"
+    >
+        Place
+    </label>
 
-                            </label>
+    <div class="input-wrapper">
 
+        <i
+            class="ri-building-line input-icon"
+        ></i>
 
-                            <div class="input-wrapper">
+        <input
+            type="text"
+            id="place"
+            name="place"
+            class="form-input"
+            placeholder="Your place"
+            required
+        >
 
-                                <i
-                                    class="ri-building-line input-icon"
-                                ></i>
+    </div>
 
-
-                                <input
-                                    type="text"
-                                    id="place"
-                                    name="place"
-                                    class="form-input"
-                                    placeholder="Your place"
-                                >
-
-                            </div>
-
-                        </div>
-
-
-
-                        <div class="form-group">
-
-                            <label
-                                for="district"
-                                class="form-label"
-                            >
-
-                                District
-
-                            </label>
+</div>
 
 
-                            <div class="input-wrapper">
+<!-- ==============================
+     DISTRICT
+=============================== -->
 
-                                <i
-                                    class="ri-map-2-line input-icon"
-                                ></i>
+<div class="form-group">
+
+    <label
+        for="district"
+        class="form-label"
+    >
+        District
+    </label>
+
+    <div class="input-wrapper">
+
+        <i
+            class="ri-map-2-line input-icon"
+        ></i>
+
+        <select
+            id="district"
+            name="district"
+            class="form-input"
+            required
+        >
+
+            <option value="" selected disabled>
+                Select your district
+            </option>
+
+            <option value="Alappuzha">
+                Alappuzha
+            </option>
+
+            <option value="Ernakulam">
+                Ernakulam
+            </option>
+
+            <option value="Idukki">
+                Idukki
+            </option>
+
+            <option value="Kannur">
+                Kannur
+            </option>
+
+            <option value="Kasargod">
+                Kasargod
+            </option>
+
+            <option value="Kollam">
+                Kollam
+            </option>
+
+            <option value="Kottayam">
+                Kottayam
+            </option>
+
+            <option value="Kozhikode">
+                Kozhikode
+            </option>
+
+            <option value="Malappuram">
+                Malappuram
+            </option>
+
+            <option value="Palakkad">
+                Palakkad
+            </option>
+
+            <option value="Pathanamthitta">
+                Pathanamthitta
+            </option>
+
+            <option value="Thiruvananthapuram">
+                Thiruvananthapuram
+            </option>
+
+            <option value="Thrissur">
+                Thrissur
+            </option>
+
+            <option value="Wayanad">
+                Wayanad
+            </option>
+
+        </select>
+
+    </div>
+
+</div>
+
+</div>
+
+<!-- ==============================
+     STATE / PINCODE
+=============================== -->
+
+<div class="form-row">
 
 
-                                <input
-                                    type="text"
-                                    id="district"
-                                    name="district"
-                                    class="form-input"
-                                    placeholder="Your district"
-                                >
+<!-- ==============================
+     STATE
+=============================== -->
 
-                            </div>
+<div class="form-group">
 
-                        </div>
+    <label
+        for="state"
+        class="form-label"
+    >
+        State
+    </label>
 
+    <div class="input-wrapper">
 
-                    </div>
+        <i
+            class="ri-government-line input-icon"
+        ></i>
 
+        <select
+            id="state"
+            name="state"
+            class="form-input"
+            required
+        >
 
+            <option
+                value="Kerala"
+                selected
+            >
+                Kerala
+            </option>
 
-                    <!-- ==============================
-                         STATE / PINCODE
-                    =============================== -->
+        </select>
 
-                    <div class="form-row">
+    </div>
 
-
-                        <div class="form-group">
-
-                            <label
-                                for="state"
-                                class="form-label"
-                            >
-
-                                State
-
-                            </label>
-
-
-                            <div class="input-wrapper">
-
-                                <i
-                                    class="ri-government-line input-icon"
-                                ></i>
-
-
-                                <input
-                                    type="text"
-                                    id="state"
-                                    name="state"
-                                    class="form-input"
-                                    placeholder="Your state"
-                                >
-
-                            </div>
-
-                        </div>
+</div>
 
 
 
-                        <div class="form-group">
+<!-- ==============================
+     PINCODE
+=============================== -->
 
-                            <label
-                                for="pincode"
-                                class="form-label"
-                            >
+<div class="form-group">
 
-                                Pincode
+    <label
+        for="pincode"
+        class="form-label"
+    >
+        Pincode
+    </label>
 
-                            </label>
+    <div class="input-wrapper">
 
+        <i
+            class="ri-navigation-line input-icon"
+        ></i>
 
-                            <div class="input-wrapper">
+        <input
+            type="text"
+            id="pincode"
+            name="pincode"
+            class="form-input"
+            placeholder="6-digit pincode"
+            maxlength="6"
+            minlength="6"
+            pattern="[0-9]{6}"
+            title="Pincode must be exactly 6 digits"
+            inputmode="numeric"
+            required
+        >
 
-                                <i
-                                    class="ri-navigation-line input-icon"
-                                ></i>
+    </div>
 
+</div>
+</div>
 
-                                <input
-                                    type="text"
-                                    id="pincode"
-                                    name="pincode"
-                                    class="form-input"
-                                    placeholder="6-digit pincode"
-                                    maxlength="6"
-                                    minlength="6"
-                                    pattern="^[0-9]{6}$"
-                                    title="Pincode must be exactly 6 digits"
-                                    inputmode="numeric"
-                                    required
-                                >
-
-                            </div>
-
-                        </div>
-
-
-                    </div>
 
 
 

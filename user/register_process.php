@@ -4,26 +4,57 @@ session_start();
 require_once "../includes/db.php";
 require_once "../includes/functions.php";
 
-if ($_SERVER["REQUEST_METHOD"] != "POST") {
+
+// --------------------
+// Request Validation
+// --------------------
+
+if ($_SERVER["REQUEST_METHOD"] !== "POST") {
     redirect("register.php");
 }
 
-// Sanitize Inputs
-$name      = sanitize($_POST['name'] ?? '');
-$email     = sanitize($_POST['email'] ?? '');
-$phone     = sanitize($_POST['phone'] ?? '');
-$address   = sanitize($_POST['address'] ?? '');
-$place     = sanitize($_POST['place'] ?? '');
-$district  = sanitize($_POST['district'] ?? '');
-$state     = sanitize($_POST['state'] ?? '');
-$pincode   = sanitize($_POST['pincode'] ?? '');
 
-$password  = $_POST['password'] ?? '';
-$confirm   = $_POST['confirm_password'] ?? '';
+// --------------------
+// Sanitize Inputs
+// --------------------
+
+$name     = sanitize($_POST['name'] ?? '');
+$email    = sanitize($_POST['email'] ?? '');
+$phone    = sanitize($_POST['phone'] ?? '');
+$address  = sanitize($_POST['address'] ?? '');
+$place    = sanitize($_POST['place'] ?? '');
+$district = sanitize($_POST['district'] ?? '');
+$state    = sanitize($_POST['state'] ?? '');
+$pincode  = sanitize($_POST['pincode'] ?? '');
+
+$password = $_POST['password'] ?? '';
+$confirm  = $_POST['confirm_password'] ?? '';
 
 
 // --------------------
-// Validation
+// Valid Kerala Districts
+// --------------------
+
+$keralaDistricts = [
+    "Alappuzha",
+    "Ernakulam",
+    "Idukki",
+    "Kannur",
+    "Kasargod",
+    "Kollam",
+    "Kottayam",
+    "Kozhikode",
+    "Malappuram",
+    "Palakkad",
+    "Pathanamthitta",
+    "Thiruvananthapuram",
+    "Thrissur",
+    "Wayanad"
+];
+
+
+// --------------------
+// Required Field Validation
 // --------------------
 
 if (
@@ -31,56 +62,139 @@ if (
     empty($email) ||
     empty($phone) ||
     empty($address) ||
+    empty($place) ||
+    empty($district) ||
+    empty($state) ||
     empty($pincode) ||
     empty($password) ||
     empty($confirm)
 ) {
-    setMessage("danger","Please fill all required fields.");
+    setMessage("danger", "Please fill all required fields.");
     redirect("register.php");
 }
+
+
+// --------------------
+// Name Validation
+// --------------------
 
 if (!preg_match('/^[a-zA-Z\s.]{2,100}$/', $name)) {
-    setMessage("danger","Please enter a valid name.");
+    setMessage("danger", "Please enter a valid name.");
     redirect("register.php");
 }
+
+
+// --------------------
+// Email Validation
+// --------------------
 
 if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    setMessage("danger","Invalid email address.");
+    setMessage("danger", "Invalid email address.");
     redirect("register.php");
 }
+
+
+// --------------------
+// Phone Validation
+// --------------------
 
 if (!preg_match('/^[0-9]{10}$/', $phone)) {
-    setMessage("danger","Phone number must be 10 digits.");
+    setMessage("danger", "Phone number must be exactly 10 digits.");
     redirect("register.php");
 }
+
+
+// --------------------
+// Kerala State Validation
+// --------------------
+
+if ($state !== "Kerala") {
+    setMessage(
+        "danger",
+        "EcoScrap currently operates only in Kerala."
+    );
+
+    redirect("register.php");
+}
+
+
+// --------------------
+// District Validation
+// --------------------
+
+if (!in_array($district, $keralaDistricts, true)) {
+    setMessage(
+        "danger",
+        "Please select a valid district in Kerala."
+    );
+
+    redirect("register.php");
+}
+
+
+// --------------------
+// Pincode Validation
+// --------------------
 
 if (!preg_match('/^[0-9]{6}$/', $pincode)) {
-    setMessage("danger","Pincode must be 6 digits.");
+    setMessage(
+        "danger",
+        "Pincode must be exactly 6 digits."
+    );
+
     redirect("register.php");
 }
+
+
+// --------------------
+// Password Match Validation
+// --------------------
 
 if ($password !== $confirm) {
-    setMessage("danger","Passwords do not match.");
+    setMessage(
+        "danger",
+        "Passwords do not match."
+    );
+
     redirect("register.php");
 }
+
+
+// --------------------
+// Password Length Validation
+// --------------------
 
 if (strlen($password) < 8) {
-    setMessage("danger","Password must be at least 8 characters.");
+    setMessage(
+        "danger",
+        "Password must be at least 8 characters."
+    );
+
     redirect("register.php");
 }
 
 
 // --------------------
-// Duplicate Email
+// Duplicate Email Check
 // --------------------
 
-$stmt = $conn->prepare("SELECT user_id FROM user WHERE email=?");
-$stmt->bind_param("s",$email);
+$stmt = $conn->prepare(
+    "SELECT user_id FROM user WHERE email = ?"
+);
+
+$stmt->bind_param("s", $email);
 $stmt->execute();
 $stmt->store_result();
 
-if($stmt->num_rows>0){
-    setMessage("danger","Email already registered.");
+if ($stmt->num_rows > 0) {
+
+    $stmt->close();
+
+    setMessage(
+        "danger",
+        "Email already registered."
+    );
+
     redirect("register.php");
 }
 
@@ -88,16 +202,26 @@ $stmt->close();
 
 
 // --------------------
-// Duplicate Phone
+// Duplicate Phone Check
 // --------------------
 
-$stmt = $conn->prepare("SELECT user_id FROM user WHERE phone=?");
-$stmt->bind_param("s",$phone);
+$stmt = $conn->prepare(
+    "SELECT user_id FROM user WHERE phone = ?"
+);
+
+$stmt->bind_param("s", $phone);
 $stmt->execute();
 $stmt->store_result();
 
-if($stmt->num_rows>0){
-    setMessage("danger","Phone number already exists.");
+if ($stmt->num_rows > 0) {
+
+    $stmt->close();
+
+    setMessage(
+        "danger",
+        "Phone number already exists."
+    );
+
     redirect("register.php");
 }
 
@@ -110,23 +234,45 @@ $stmt->close();
 
 $image = "default.png";
 
-if(isset($_FILES['profile_image']) && $_FILES['profile_image']['error']==0){
+if (
+    isset($_FILES['profile_image']) &&
+    $_FILES['profile_image']['error'] === UPLOAD_ERR_OK
+) {
 
-    $allowed = ['jpg','jpeg','png'];
+    $allowedExtensions = [
+        'jpg',
+        'jpeg',
+        'png'
+    ];
 
-    $extension = strtolower(pathinfo($_FILES['profile_image']['name'],PATHINFO_EXTENSION));
+    $extension = strtolower(
+        pathinfo(
+            $_FILES['profile_image']['name'],
+            PATHINFO_EXTENSION
+        )
+    );
 
-    if(in_array($extension,$allowed)){
+    if (in_array($extension, $allowedExtensions, true)) {
 
-        $image = uniqid().".".$extension;
+        $image = uniqid(
+            "profile_",
+            true
+        ) . "." . $extension;
 
         move_uploaded_file(
             $_FILES['profile_image']['tmp_name'],
-            "../uploads/profile/".$image
+            "../uploads/profile/" . $image
         );
 
-    }
+    } else {
 
+        setMessage(
+            "danger",
+            "Profile image must be JPG, JPEG or PNG."
+        );
+
+        redirect("register.php");
+    }
 }
 
 
@@ -134,48 +280,61 @@ if(isset($_FILES['profile_image']) && $_FILES['profile_image']['error']==0){
 // Hash Password
 // --------------------
 
-$hashedPassword = password_hash($password,PASSWORD_DEFAULT);
+$hashedPassword = password_hash(
+    $password,
+    PASSWORD_DEFAULT
+);
 
 
 // --------------------
 // Insert User
 // --------------------
 
-$stmt = $conn->prepare("
-INSERT INTO user
-(
-name,
-email,
-password,
-phone,
-profile_image,
-address,
-place,
-district,
-state,
-pincode
-)
-VALUES
-(
-?,?,?,?,?,?,?,?,?,?
-)
-");
-
-$stmt->bind_param(
-"ssssssssss",
-$name,
-$email,
-$hashedPassword,
-$phone,
-$image,
-$address,
-$place,
-$district,
-$state,
-$pincode
+$stmt = $conn->prepare(
+    "
+    INSERT INTO user
+    (
+        name,
+        email,
+        password,
+        phone,
+        profile_image,
+        address,
+        place,
+        district,
+        state,
+        pincode
+    )
+    VALUES
+    (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )
+    "
 );
 
-if($stmt->execute()){
+$stmt->bind_param(
+    "ssssssssss",
+    $name,
+    $email,
+    $hashedPassword,
+    $phone,
+    $image,
+    $address,
+    $place,
+    $district,
+    $state,
+    $pincode
+);
+
+
+// --------------------
+// Registration Result
+// --------------------
+
+if ($stmt->execute()) {
+
+    $stmt->close();
+    $conn->close();
 
     setMessage(
         "success",
@@ -184,18 +343,17 @@ if($stmt->execute()){
 
     redirect("../login.php");
 
-}else{
+} else {
+
+    $stmt->close();
+    $conn->close();
 
     setMessage(
         "danger",
-        "Registration failed."
+        "Registration failed. Please try again."
     );
 
     redirect("register.php");
-
 }
-
-$stmt->close();
-$conn->close();
 
 ?>

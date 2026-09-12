@@ -454,7 +454,7 @@ if ($activeStageIndex === false) {
                 <span>My Profile</span>
             </a>
 
-            <a href="../help.php">
+            <a href="help.php">
                 <i class="ri-question-line"></i>
                 <span>Help Centre</span>
             </a>
@@ -987,16 +987,16 @@ if ($activeStageIndex === false) {
         </section>
 
         <footer class="footer">
-            <span>
-                © <?= date("Y") ?> EcoScrap. Building a cleaner tomorrow.
-            </span>
+    <span>
+        © <?= date("Y") ?> EcoScrap. Building a cleaner tomorrow.
+    </span>
 
-            <span class="footer-links">
-                <a href="../privacy.php">Privacy</a>
-                <a href="../help.php">Help</a>
-                <a href="../contact.php">Contact</a>
-            </span>
-        </footer>
+    <span class="footer-links">
+        <a href="../privacy.php">Privacy</a>
+        <<a href="/ecoscrap/user/help.php">Help</a>
+        <a href="../contact.php">Contact</a>
+    </span>
+</footer>
 
     </main>
 </div>

@@ -396,26 +396,53 @@ if ($status_clean === 'assigned') {
                 </div>
 
                 <!-- Verification QR Card -->
-                <div class="card-wrapper text-center">
-                    <h6 class="fw-bold mb-2 text-start"><i class="ri-qr-code-line text-primary me-2"></i>Pickup Verification</h6>
-                    <p class="text-muted small text-start mb-3">Show this QR code to the collector upon arrival to verify handover.</p>
 
-                    <?php if (!empty($request['qr_code'])) { ?>
-                        <div class="p-3 bg-light rounded-3 d-inline-block border mb-2">
-                            <img src="uploads/qr/<?= htmlspecialchars($request['qr_code']); ?>" alt="Pickup QR Code" class="img-fluid" style="max-width: 160px;">
-                        </div>
-                        <div>
-                            <span class="badge <?= $request['qr_status'] === 'Used' ? 'bg-secondary' : 'bg-success'; ?> px-3 py-2">
-                                Status: <?= htmlspecialchars($request['qr_status']); ?>
-                            </span>
-                        </div>
-                    <?php } else { ?>
-                        <div class="p-4 bg-light rounded-3 border">
-                            <i class="ri-qr-scan-2-line fs-1 text-muted d-block mb-2"></i>
-                            <span class="small text-muted">QR Pass will generate once collector arrives.</span>
-                        </div>
-                    <?php } ?>
-                </div>
+<div class="card-wrapper text-center">
+
+
+<h6 class="fw-bold mb-2 text-start">
+    <i class="ri-qr-code-line text-primary me-2"></i>
+    Pickup Verification
+</h6>
+
+<p class="text-muted small text-start mb-3">
+    Show this QR code to the scrap collector upon arrival to verify handover.
+</p>
+
+<?php if (!empty($request['qr_code'])) { ?>
+
+    <div class="p-3 bg-light rounded-3 d-inline-block border mb-2">
+
+        <img 
+            src="/ECOSCRAP/uploads/qr/<?= htmlspecialchars(basename($request['qr_code'])); ?>"
+            alt="Pickup QR Code"
+            class="img-fluid"
+            style="max-width: 160px;"
+        >
+
+    </div>
+
+    <div>
+        <span class="badge <?= ($request['qr_status'] ?? '') === 'Used' ? 'bg-secondary' : 'bg-success'; ?> px-3 py-2">
+            Status: <?= htmlspecialchars($request['qr_status'] ?? 'Unused'); ?>
+        </span>
+    </div>
+
+<?php } else { ?>
+
+    <div class="p-4 bg-light rounded-3 border">
+        <i class="ri-qr-scan-2-line fs-1 text-muted d-block mb-2"></i>
+
+        <span class="small text-muted">
+            QR Pass will generate once collector arrives.
+        </span>
+    </div>
+
+<?php } ?>
+
+
+</div>
+
 
             </div>
         </div>
