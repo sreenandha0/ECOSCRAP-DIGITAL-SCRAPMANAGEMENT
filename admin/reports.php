@@ -1,13 +1,32 @@
 <?php
 // admin/reports.php
+
 session_start();
 
-if (!isset($_SESSION['admin_id']) || ($_SESSION['role'] ?? '') !== 'Admin') {
+if (
+    !isset($_SESSION['admin_id']) ||
+    ($_SESSION['role'] ?? '') !== 'Admin'
+) {
     header("Location: ../login.php");
     exit();
 }
 
 require_once '../includes/db.php';
+
+/*
+|--------------------------------------------------------------------------
+| HELPER FUNCTIONS
+|--------------------------------------------------------------------------
+*/
+
+function e($value): string
+{
+    return htmlspecialchars(
+        (string)($value ?? ''),
+        ENT_QUOTES,
+        'UTF-8'
+    );
+}
 
 function getCount(mysqli $conn, string $query): int
 {
@@ -18,10 +37,45 @@ function getCount(mysqli $conn, string $query): int
     }
 
     $row = $result->fetch_assoc();
+
     return (int)($row['total'] ?? 0);
 }
 
-$totalUsers = getCount($conn, "SELECT COUNT(*) AS total FROM `user`");
+function statusClass(string $status): string
+{
+    $status = strtolower(trim($status));
+
+    return match ($status) {
+        'completed',
+        'approved',
+        'available' => 'status-success',
+
+        'pending',
+        'assigned',
+        'accepted',
+        'picked up',
+        'in progress',
+        'busy' => 'status-warning',
+
+        'cancelled',
+        'rejected',
+        'unavailable',
+        'offline' => 'status-danger',
+
+        default => 'status-neutral'
+    };
+}
+
+/*
+|--------------------------------------------------------------------------
+| SUMMARY COUNTS
+|--------------------------------------------------------------------------
+*/
+
+$totalUsers = getCount(
+    $conn,
+    "SELECT COUNT(*) AS total FROM `user`"
+);
 
 $totalCollectors = getCount(
     $conn,
@@ -30,8 +84,8 @@ $totalCollectors = getCount(
 
 $approvedCollectors = getCount(
     $conn,
-    "SELECT COUNT(*) AS total 
-     FROM scrapcollector 
+    "SELECT COUNT(*) AS total
+     FROM scrapcollector
      WHERE verification_status = 'Approved'"
 );
 
@@ -42,30 +96,35 @@ $totalActivities = getCount(
 
 $completedPickups = getCount(
     $conn,
-    "SELECT COUNT(*) AS total 
-     FROM activity 
+    "SELECT COUNT(*) AS total
+     FROM activity
      WHERE status = 'Completed'"
 );
 
 $pendingPickups = getCount(
     $conn,
-    "SELECT COUNT(*) AS total 
-     FROM activity 
+    "SELECT COUNT(*) AS total
+     FROM activity
      WHERE status = 'Pending'"
 );
 
 $cancelledPickups = getCount(
     $conn,
-    "SELECT COUNT(*) AS total 
-     FROM activity 
+    "SELECT COUNT(*) AS total
+     FROM activity
      WHERE status = 'Cancelled'"
 );
 
 $inProgressPickups = getCount(
     $conn,
-    "SELECT COUNT(*) AS total 
-     FROM activity 
-     WHERE status IN ('Accepted', 'In Progress', 'Assigned')"
+    "SELECT COUNT(*) AS total
+     FROM activity
+     WHERE status IN (
+         'Assigned',
+         'Accepted',
+         'Picked Up',
+         'In Progress'
+     )"
 );
 
 $completionRate = $totalActivities > 0
@@ -76,8 +135,14 @@ $approvalRate = $totalCollectors > 0
     ? round(($approvedCollectors / $totalCollectors) * 100)
     : 0;
 
+/*
+|--------------------------------------------------------------------------
+| COLLECTORS
+|--------------------------------------------------------------------------
+*/
+
 $collectorsResult = $conn->query("
-    SELECT 
+    SELECT
         collector_id,
         name,
         email,
@@ -92,8 +157,14 @@ $collectorsResult = $conn->query("
     ORDER BY created_at DESC
 ");
 
+/*
+|--------------------------------------------------------------------------
+| RECENT ACTIVITIES
+|--------------------------------------------------------------------------
+*/
+
 $recentActivitiesResult = $conn->query("
-    SELECT 
+    SELECT
         a.activity_id,
         u.name AS user_name,
         c.name AS collector_name,
@@ -101,23 +172,36 @@ $recentActivitiesResult = $conn->query("
         a.status,
         a.request_date AS activity_date
     FROM activity a
-    LEFT JOIN `user` u ON a.user_id = u.user_id
-    LEFT JOIN scrapcollector c ON a.collector_id = c.collector_id
+    LEFT JOIN `user` u
+        ON a.user_id = u.user_id
+    LEFT JOIN scrapcollector c
+        ON a.collector_id = c.collector_id
     ORDER BY a.request_date DESC
     LIMIT 10
 ");
+
+/*
+|--------------------------------------------------------------------------
+| MONTHLY ACTIVITY DATA
+|--------------------------------------------------------------------------
+*/
 
 $monthlyLabels = [];
 $monthlyValues = [];
 
 $monthlyResult = $conn->query("
-    SELECT 
+    SELECT
         DATE_FORMAT(request_date, '%b') AS month_name,
         COUNT(*) AS total
     FROM activity
     WHERE request_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-    GROUP BY YEAR(request_date), MONTH(request_date), DATE_FORMAT(request_date, '%b')
-    ORDER BY YEAR(request_date), MONTH(request_date)
+    GROUP BY
+        YEAR(request_date),
+        MONTH(request_date),
+        DATE_FORMAT(request_date, '%b')
+    ORDER BY
+        YEAR(request_date),
+        MONTH(request_date)
 ");
 
 if ($monthlyResult) {
@@ -132,45 +216,30 @@ if (empty($monthlyLabels)) {
     $monthlyValues = [0];
 }
 
-function e($value): string
-{
-    return htmlspecialchars((string)($value ?? ''), ENT_QUOTES, 'UTF-8');
-}
-
-function statusClass(string $status): string
-{
-    $status = strtolower(trim($status));
-
-    return match ($status) {
-        'completed', 'approved', 'available' =>
-            'status-success',
-
-        'pending', 'assigned', 'accepted', 'in progress' =>
-            'status-warning',
-
-        'cancelled', 'rejected', 'unavailable' =>
-            'status-danger',
-
-        default =>
-            'status-neutral'
-    };
-}
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
+
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
     <title>Reports & Analytics | EcoScrap Admin</title>
 
-    <link rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    >
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0"></script>
 
     <style>
+
         :root {
             --primary: #16a34a;
             --primary-dark: #15803d;
@@ -213,13 +282,46 @@ function statusClass(string $status): string
             margin-bottom: 28px;
         }
 
+        .header-content {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .back-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 17px;
+            padding: 9px 14px;
+            color: var(--primary-dark);
+            background: #f0fdf4;
+            border: 1px solid #bbebc8;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 800;
+            text-decoration: none;
+            transition: all .2s ease;
+        }
+
+        .back-button i {
+            font-size: 13px;
+        }
+
+        .back-button:hover {
+            color: #ffffff;
+            background: var(--primary);
+            border-color: var(--primary);
+            transform: translateX(-3px);
+        }
+
         .eyebrow {
+            margin: 0 0 8px;
             color: var(--primary);
             font-size: 12px;
             font-weight: 800;
             letter-spacing: .13em;
             text-transform: uppercase;
-            margin: 0 0 8px;
         }
 
         h1,
@@ -248,21 +350,21 @@ function statusClass(string $status): string
         }
 
         .button {
-            border: 0;
-            border-radius: 12px;
-            padding: 12px 17px;
-            font-weight: 750;
-            cursor: pointer;
-            transition: .2s ease;
             display: inline-flex;
             align-items: center;
             gap: 9px;
+            padding: 12px 17px;
+            border: 0;
+            border-radius: 12px;
+            font-weight: 750;
+            cursor: pointer;
             text-decoration: none;
+            transition: .2s ease;
         }
 
         .button-primary {
-            background: var(--primary);
             color: white;
+            background: var(--primary);
             box-shadow: 0 9px 20px rgba(22, 163, 74, .22);
         }
 
@@ -272,14 +374,14 @@ function statusClass(string $status): string
         }
 
         .button-light {
-            background: white;
             color: var(--text);
+            background: white;
             border: 1px solid var(--border);
         }
 
         .button-light:hover {
-            border-color: var(--primary);
             color: var(--primary);
+            border-color: var(--primary);
         }
 
         .metrics-grid {
@@ -292,22 +394,22 @@ function statusClass(string $status): string
         .metric-card {
             position: relative;
             overflow: hidden;
+            padding: 22px;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 20px;
-            padding: 22px;
             box-shadow: var(--shadow);
         }
 
         .metric-card::after {
-            content: "";
             position: absolute;
             right: -35px;
             bottom: -45px;
             width: 125px;
             height: 125px;
-            border-radius: 50%;
+            content: "";
             background: var(--primary-light);
+            border-radius: 50%;
             opacity: .6;
         }
 
@@ -321,12 +423,12 @@ function statusClass(string $status): string
         }
 
         .metric-label {
+            margin-bottom: 9px;
             color: var(--muted);
             font-size: 12px;
             font-weight: 800;
             letter-spacing: .04em;
             text-transform: uppercase;
-            margin-bottom: 9px;
         }
 
         .metric-value {
@@ -342,10 +444,10 @@ function statusClass(string $status): string
         }
 
         .metric-icon {
-            width: 48px;
-            height: 48px;
             display: grid;
             place-items: center;
+            width: 48px;
+            height: 48px;
             flex: 0 0 auto;
             border-radius: 15px;
             font-size: 20px;
@@ -379,17 +481,17 @@ function statusClass(string $status): string
         }
 
         .card {
+            padding: 22px;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 20px;
-            padding: 22px;
             box-shadow: var(--shadow);
         }
 
         .card-header {
             display: flex;
-            justify-content: space-between;
             align-items: flex-start;
+            justify-content: space-between;
             gap: 15px;
             margin-bottom: 20px;
         }
@@ -407,9 +509,9 @@ function statusClass(string $status): string
         }
 
         .card-subtitle {
+            margin-bottom: 0;
             color: var(--muted);
             font-size: 13px;
-            margin-bottom: 0;
         }
 
         .chart-container {
@@ -453,8 +555,8 @@ function statusClass(string $status): string
 
         .impact-row {
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
             color: var(--muted);
             font-size: 13px;
         }
@@ -464,9 +566,9 @@ function statusClass(string $status): string
         }
 
         .legend-dot {
+            display: inline-block;
             width: 9px;
             height: 9px;
-            display: inline-block;
             margin-right: 7px;
             border-radius: 50%;
         }
@@ -483,20 +585,17 @@ function statusClass(string $status): string
             background: var(--danger);
         }
 
-        .blue-dot {
-            background: var(--blue);
-        }
-
         .progress-section {
             margin-top: 22px;
         }
 
         .progress-title {
             display: flex;
+            align-items: center;
             justify-content: space-between;
+            margin-bottom: 8px;
             color: var(--muted);
             font-size: 13px;
-            margin-bottom: 8px;
         }
 
         .progress-bar {
@@ -509,7 +608,11 @@ function statusClass(string $status): string
 
         .progress-value {
             height: 100%;
-            background: linear-gradient(90deg, var(--primary), #4ade80);
+            background: linear-gradient(
+                90deg,
+                var(--primary),
+                #4ade80
+            );
             border-radius: inherit;
         }
 
@@ -523,14 +626,14 @@ function statusClass(string $status): string
 
         table {
             width: 100%;
-            border-collapse: collapse;
             min-width: 850px;
+            border-collapse: collapse;
         }
 
         th {
             padding: 13px 12px;
-            background: #f7faf8;
             color: var(--muted);
+            background: #f7faf8;
             font-size: 11px;
             font-weight: 850;
             letter-spacing: .07em;
@@ -561,16 +664,16 @@ function statusClass(string $status): string
         }
 
         .small-text {
+            margin-top: 4px;
             color: var(--muted);
             font-size: 12px;
-            margin-top: 4px;
         }
 
         .status {
             display: inline-flex;
             align-items: center;
-            border-radius: 999px;
             padding: 6px 10px;
+            border-radius: 999px;
             font-size: 11px;
             font-weight: 800;
             white-space: nowrap;
@@ -602,10 +705,6 @@ function statusClass(string $status): string
             text-align: center;
         }
 
-        .print-only {
-            display: none;
-        }
-
         @media (max-width: 1050px) {
             .metrics-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -625,6 +724,10 @@ function statusClass(string $status): string
             .top-header {
                 align-items: flex-start;
                 flex-direction: column;
+            }
+
+            .header-content {
+                width: 100%;
             }
 
             .header-actions,
@@ -666,6 +769,7 @@ function statusClass(string $status): string
                 padding: 0;
             }
 
+            .back-button,
             .header-actions,
             .button {
                 display: none !important;
@@ -676,440 +780,707 @@ function statusClass(string $status): string
                 box-shadow: none;
                 break-inside: avoid;
             }
-
-            .print-only {
-                display: block;
-            }
         }
+
     </style>
+
 </head>
 
 <body>
-    <main class="page-wrapper">
 
-        <header class="top-header">
+<main class="page-wrapper">
+
+    <header class="top-header">
+
+        <div class="header-content">
+
+            <a href="dashboard.php" class="back-button">
+                <i class="fa-solid fa-arrow-left"></i>
+                Back to Dashboard
+            </a>
+
+            <p class="eyebrow">
+                EcoScrap administration
+            </p>
+
+            <h1>
+                Reports & Analytics
+            </h1>
+
+            <p class="header-description">
+                Monitor users, collectors, pickup activity,
+                and environmental impact.
+            </p>
+
+        </div>
+
+        <div class="header-actions">
+
+            <button
+                class="button button-light"
+                onclick="window.location.reload()"
+            >
+                <i class="fa-solid fa-rotate"></i>
+                Refresh
+            </button>
+
+            <button
+                class="button button-primary"
+                onclick="window.print()"
+            >
+                <i class="fa-solid fa-print"></i>
+                Print Report
+            </button>
+
+        </div>
+
+    </header>
+
+    <section class="metrics-grid">
+
+        <article class="metric-card">
+
+            <div class="metric-top">
+
+                <div>
+                    <div class="metric-label">
+                        Total users
+                    </div>
+
+                    <h2 class="metric-value">
+                        <?= number_format($totalUsers) ?>
+                    </h2>
+
+                    <div class="metric-note">
+                        <i class="fa-solid fa-arrow-up"></i>
+                        Registered platform users
+                    </div>
+                </div>
+
+                <div class="metric-icon icon-blue">
+                    <i class="fa-solid fa-users"></i>
+                </div>
+
+            </div>
+
+        </article>
+
+        <article class="metric-card">
+
+            <div class="metric-top">
+
+                <div>
+                    <div class="metric-label">
+                        Collectors
+                    </div>
+
+                    <h2 class="metric-value">
+                        <?= number_format($totalCollectors) ?>
+                    </h2>
+
+                    <div class="metric-note">
+                        <?= number_format($approvedCollectors) ?>
+                        verified collectors
+                    </div>
+                </div>
+
+                <div class="metric-icon icon-green">
+                    <i class="fa-solid fa-truck-pickup"></i>
+                </div>
+
+            </div>
+
+        </article>
+
+        <article class="metric-card">
+
+            <div class="metric-top">
+
+                <div>
+                    <div class="metric-label">
+                        Pickup requests
+                    </div>
+
+                    <h2 class="metric-value">
+                        <?= number_format($totalActivities) ?>
+                    </h2>
+
+                    <div class="metric-note">
+                        <?= number_format($pendingPickups) ?>
+                        currently pending
+                    </div>
+                </div>
+
+                <div class="metric-icon icon-purple">
+                    <i class="fa-solid fa-recycle"></i>
+                </div>
+
+            </div>
+
+        </article>
+
+        <article class="metric-card">
+
+            <div class="metric-top">
+
+                <div>
+                    <div class="metric-label">
+                        Completed pickups
+                    </div>
+
+                    <h2 class="metric-value">
+                        <?= number_format($completedPickups) ?>
+                    </h2>
+
+                    <div class="metric-note">
+                        <?= $completionRate ?>% completion rate
+                    </div>
+                </div>
+
+                <div class="metric-icon icon-orange">
+                    <i class="fa-solid fa-circle-check"></i>
+                </div>
+
+            </div>
+
+        </article>
+
+    </section>
+
+    <section class="dashboard-grid">
+
+        <article class="card">
+
+            <div class="card-header">
+
+                <div>
+                    <h2 class="card-title">
+                        <i class="fa-solid fa-chart-column"></i>
+                        Pickup activity
+                    </h2>
+
+                    <p class="card-subtitle">
+                        Requests recorded over the recent six-month period.
+                    </p>
+                </div>
+
+            </div>
+
+            <div class="chart-container">
+                <canvas id="activityChart"></canvas>
+            </div>
+
+        </article>
+
+        <article class="card">
+
+            <div class="card-header">
+
+                <div>
+                    <h2 class="card-title">
+                        <i class="fa-solid fa-leaf"></i>
+                        Environmental impact
+                    </h2>
+
+                    <p class="card-subtitle">
+                        Current pickup completion performance.
+                    </p>
+                </div>
+
+            </div>
+
+            <div class="impact-content">
+
+                <div class="impact-chart">
+                    <canvas id="impactChart"></canvas>
+                </div>
+
+                <div class="impact-stat">
+
+                    <strong>
+                        <?= $completionRate ?>%
+                    </strong>
+
+                    <span>
+                        of pickup requests have been successfully completed.
+                    </span>
+
+                </div>
+
+            </div>
+
+            <div class="impact-list">
+
+                <div class="impact-row">
+                    <span>
+                        <span class="legend-dot green-dot"></span>
+                        Completed
+                    </span>
+
+                    <strong>
+                        <?= number_format($completedPickups) ?>
+                    </strong>
+                </div>
+
+                <div class="impact-row">
+                    <span>
+                        <span class="legend-dot orange-dot"></span>
+                        Pending
+                    </span>
+
+                    <strong>
+                        <?= number_format($pendingPickups) ?>
+                    </strong>
+                </div>
+
+                <div class="impact-row">
+                    <span>
+                        <span class="legend-dot red-dot"></span>
+                        Cancelled
+                    </span>
+
+                    <strong>
+                        <?= number_format($cancelledPickups) ?>
+                    </strong>
+                </div>
+
+            </div>
+
+            <div class="progress-section">
+
+                <div class="progress-title">
+                    <span>Collector verification</span>
+                    <strong><?= $approvalRate ?>%</strong>
+                </div>
+
+                <div class="progress-bar">
+                    <div
+                        class="progress-value"
+                        style="width: <?= $approvalRate ?>%"
+                    ></div>
+                </div>
+
+            </div>
+
+        </article>
+
+    </section>
+
+    <section class="card full-width">
+
+        <div class="card-header">
+
             <div>
-                <p class="eyebrow">EcoScrap administration</p>
-                <h1>Reports & Analytics</h1>
-                <p class="header-description">
-                    Monitor users, collectors, pickup activity, and environmental impact.
+                <h2 class="card-title">
+                    <i class="fa-solid fa-id-card"></i>
+                    Registered collectors
+                </h2>
+
+                <p class="card-subtitle">
+                    Collector verification, availability,
+                    and performance summary.
                 </p>
             </div>
 
-            <div class="header-actions">
-                <button class="button button-light" onclick="window.location.reload()">
-                    <i class="fa-solid fa-rotate"></i>
-                    Refresh
-                </button>
+        </div>
 
-                <button class="button button-primary" onclick="window.print()">
-                    <i class="fa-solid fa-print"></i>
-                    Print Report
-                </button>
-            </div>
-        </header>
+        <div class="table-wrapper">
 
-        <section class="metrics-grid">
+            <table>
 
-            <article class="metric-card">
-                <div class="metric-top">
-                    <div>
-                        <div class="metric-label">Total users</div>
-                        <h2 class="metric-value"><?= number_format($totalUsers) ?></h2>
-                        <div class="metric-note">
-                            <i class="fa-solid fa-arrow-up"></i>
-                            Registered platform users
-                        </div>
-                    </div>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Collector</th>
+                        <th>Contact</th>
+                        <th>Vehicle</th>
+                        <th>Pincode</th>
+                        <th>Availability</th>
+                        <th>Verification</th>
+                        <th>Completed</th>
+                    </tr>
+                </thead>
 
-                    <div class="metric-icon icon-blue">
-                        <i class="fa-solid fa-users"></i>
-                    </div>
-                </div>
-            </article>
+                <tbody>
 
-            <article class="metric-card">
-                <div class="metric-top">
-                    <div>
-                        <div class="metric-label">Collectors</div>
-                        <h2 class="metric-value"><?= number_format($totalCollectors) ?></h2>
-                        <div class="metric-note">
-                            <?= number_format($approvedCollectors) ?> verified collectors
-                        </div>
-                    </div>
+                <?php if (
+                    $collectorsResult &&
+                    $collectorsResult->num_rows > 0
+                ): ?>
 
-                    <div class="metric-icon icon-green">
-                        <i class="fa-solid fa-truck-pickup"></i>
-                    </div>
-                </div>
-            </article>
+                    <?php while (
+                        $collector = $collectorsResult->fetch_assoc()
+                    ): ?>
 
-            <article class="metric-card">
-                <div class="metric-top">
-                    <div>
-                        <div class="metric-label">Pickup requests</div>
-                        <h2 class="metric-value"><?= number_format($totalActivities) ?></h2>
-                        <div class="metric-note">
-                            <?= number_format($pendingPickups) ?> currently pending
-                        </div>
-                    </div>
-
-                    <div class="metric-icon icon-purple">
-                        <i class="fa-solid fa-recycle"></i>
-                    </div>
-                </div>
-            </article>
-
-            <article class="metric-card">
-                <div class="metric-top">
-                    <div>
-                        <div class="metric-label">Completed pickups</div>
-                        <h2 class="metric-value"><?= number_format($completedPickups) ?></h2>
-                        <div class="metric-note">
-                            <?= $completionRate ?>% completion rate
-                        </div>
-                    </div>
-
-                    <div class="metric-icon icon-orange">
-                        <i class="fa-solid fa-circle-check"></i>
-                    </div>
-                </div>
-            </article>
-
-        </section>
-
-        <section class="dashboard-grid">
-
-            <article class="card">
-                <div class="card-header">
-                    <div>
-                        <h2 class="card-title">
-                            <i class="fa-solid fa-chart-column"></i>
-                            Pickup activity
-                        </h2>
-                        <p class="card-subtitle">
-                            Requests recorded over the recent six-month period.
-                        </p>
-                    </div>
-                </div>
-
-                <div class="chart-container">
-                    <canvas id="activityChart"></canvas>
-                </div>
-            </article>
-
-            <article class="card">
-                <div class="card-header">
-                    <div>
-                        <h2 class="card-title">
-                            <i class="fa-solid fa-leaf"></i>
-                            Environmental impact
-                        </h2>
-                        <p class="card-subtitle">
-                            Current pickup completion performance.
-                        </p>
-                    </div>
-                </div>
-
-                <div class="impact-content">
-                    <div class="impact-chart">
-                        <canvas id="impactChart"></canvas>
-                    </div>
-
-                    <div class="impact-stat">
-                        <strong><?= $completionRate ?>%</strong>
-                        <span>
-                            of pickup requests have been successfully completed.
-                        </span>
-                    </div>
-                </div>
-
-                <div class="impact-list">
-                    <div class="impact-row">
-                        <span>
-                            <span class="legend-dot green-dot"></span>
-                            Completed
-                        </span>
-                        <strong><?= number_format($completedPickups) ?></strong>
-                    </div>
-
-                    <div class="impact-row">
-                        <span>
-                            <span class="legend-dot orange-dot"></span>
-                            Pending
-                        </span>
-                        <strong><?= number_format($pendingPickups) ?></strong>
-                    </div>
-
-                    <div class="impact-row">
-                        <span>
-                            <span class="legend-dot red-dot"></span>
-                            Cancelled
-                        </span>
-                        <strong><?= number_format($cancelledPickups) ?></strong>
-                    </div>
-                </div>
-
-                <div class="progress-section">
-                    <div class="progress-title">
-                        <span>Collector verification</span>
-                        <strong><?= $approvalRate ?>%</strong>
-                    </div>
-
-                    <div class="progress-bar">
-                        <div class="progress-value"
-                             style="width: <?= $approvalRate ?>%"></div>
-                    </div>
-                </div>
-            </article>
-
-        </section>
-
-        <section class="card full-width">
-            <div class="card-header">
-                <div>
-                    <h2 class="card-title">
-                        <i class="fa-solid fa-id-card"></i>
-                        Registered collectors
-                    </h2>
-                    <p class="card-subtitle">
-                        Collector verification, availability, and performance summary.
-                    </p>
-                </div>
-            </div>
-
-            <div class="table-wrapper">
-                <table>
-                    <thead>
                         <tr>
-                            <th>ID</th>
-                            <th>Collector</th>
-                            <th>Contact</th>
-                            <th>Vehicle</th>
-                            <th>Pincode</th>
-                            <th>Availability</th>
-                            <th>Verification</th>
-                            <th>Completed</th>
+
+                            <td>
+                                #<?= e($collector['collector_id']) ?>
+                            </td>
+
+                            <td>
+
+                                <div class="person-name">
+                                    <?= e($collector['name']) ?>
+                                </div>
+
+                                <div class="small-text">
+                                    Joined
+                                    <?php
+                                    echo e(
+                                        date(
+                                            'd M Y',
+                                            strtotime(
+                                                $collector['created_at']
+                                            )
+                                        )
+                                    );
+                                    ?>
+                                </div>
+
+                            </td>
+
+                            <td>
+
+                                <?= e($collector['email']) ?>
+
+                                <div class="small-text">
+                                    <?= e($collector['phone']) ?>
+                                </div>
+
+                            </td>
+
+                            <td>
+                                <?= e($collector['vehicle_no']) ?>
+                            </td>
+
+                            <td>
+                                <?= e($collector['pincode']) ?>
+                            </td>
+
+                            <td>
+
+                                <span
+                                    class="status
+                                    <?= e(
+                                        statusClass(
+                                            $collector[
+                                                'availability_status'
+                                            ]
+                                        )
+                                    ) ?>"
+                                >
+                                    <?= e(
+                                        $collector[
+                                            'availability_status'
+                                        ]
+                                    ) ?>
+                                </span>
+
+                            </td>
+
+                            <td>
+
+                                <span
+                                    class="status
+                                    <?= e(
+                                        statusClass(
+                                            $collector[
+                                                'verification_status'
+                                            ]
+                                        )
+                                    ) ?>"
+                                >
+                                    <?= e(
+                                        $collector[
+                                            'verification_status'
+                                        ]
+                                    ) ?>
+                                </span>
+
+                            </td>
+
+                            <td>
+                                <strong>
+                                    <?= e(
+                                        $collector['completed_pickups']
+                                    ) ?>
+                                </strong>
+                            </td>
+
                         </tr>
-                    </thead>
 
-                    <tbody>
-                        <?php if ($collectorsResult && $collectorsResult->num_rows > 0): ?>
-                            <?php while ($collector = $collectorsResult->fetch_assoc()): ?>
-                                <tr>
-                                    <td>#<?= e($collector['collector_id']) ?></td>
+                    <?php endwhile; ?>
 
-                                    <td>
-                                        <div class="person-name">
-                                            <?= e($collector['name']) ?>
-                                        </div>
-                                        <div class="small-text">
-                                            Joined <?= e(date('d M Y', strtotime($collector['created_at']))) ?>
-                                        </div>
-                                    </td>
+                <?php else: ?>
 
-                                    <td>
-                                        <?= e($collector['email']) ?>
-                                        <div class="small-text">
-                                            <?= e($collector['phone']) ?>
-                                        </div>
-                                    </td>
+                    <tr>
+                        <td colspan="8" class="empty-state">
+                            No collectors found.
+                        </td>
+                    </tr>
 
-                                    <td><?= e($collector['vehicle_no']) ?></td>
-                                    <td><?= e($collector['pincode']) ?></td>
+                <?php endif; ?>
 
-                                    <td>
-                                        <span class="status <?= statusClass($collector['availability_status']) ?>">
-                                            <?= e($collector['availability_status']) ?>
-                                        </span>
-                                    </td>
+                </tbody>
 
-                                    <td>
-                                        <span class="status <?= statusClass($collector['verification_status']) ?>">
-                                            <?= e($collector['verification_status']) ?>
-                                        </span>
-                                    </td>
+            </table>
 
-                                    <td>
-                                        <strong><?= e($collector['completed_pickups']) ?></strong>
-                                    </td>
-                                </tr>
-                            <?php endwhile; ?>
-                        <?php else: ?>
-                            <tr>
-                                <td colspan="8" class="empty-state">
-                                    No collectors found.
-                                </td>
-                            </tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-        </section>
+        </div>
 
-        <section class="card full-width">
-            <div class="card-header">
-                <div>
-                    <h2 class="card-title">
-                        <i class="fa-solid fa-clock-rotate-left"></i>
-                        Recent activity logs
-                    </h2>
-                    <p class="card-subtitle">
-                        The latest pickup requests submitted on the platform.
-                    </p>
-                </div>
+    </section>
+
+    <section class="card full-width">
+
+        <div class="card-header">
+
+            <div>
+                <h2 class="card-title">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                    Recent activity logs
+                </h2>
+
+                <p class="card-subtitle">
+                    The latest pickup requests submitted on the platform.
+                </p>
             </div>
 
-            <div class="table-wrapper">
-                <table>
-                    <thead>
+        </div>
+
+        <div class="table-wrapper">
+
+            <table>
+
+                <thead>
+                    <tr>
+                        <th>Activity ID</th>
+                        <th>User</th>
+                        <th>Collector</th>
+                        <th>Scrap type</th>
+                        <th>Status</th>
+                        <th>Request date</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                <?php if (
+                    $recentActivitiesResult &&
+                    $recentActivitiesResult->num_rows > 0
+                ): ?>
+
+                    <?php while (
+                        $activity = $recentActivitiesResult->fetch_assoc()
+                    ): ?>
+
+                        <?php
+                        $activityStatus =
+                            $activity['status'] ?? 'Pending';
+                        ?>
+
                         <tr>
-                            <th>Activity ID</th>
-                            <th>User</th>
-                            <th>Collector</th>
-                            <th>Scrap type</th>
-                            <th>Status</th>
-                            <th>Request date</th>
+
+                            <td>
+                                #<?= e($activity['activity_id']) ?>
+                            </td>
+
+                            <td>
+                                <span class="person-name">
+                                    <?= e(
+                                        $activity['user_name']
+                                        ?? 'N/A'
+                                    ) ?>
+                                </span>
+                            </td>
+
+                            <td>
+                                <?= e(
+                                    $activity['collector_name']
+                                    ?? 'Unassigned'
+                                ) ?>
+                            </td>
+
+                            <td>
+                                <?= e(
+                                    $activity['scrap_type']
+                                    ?? 'General'
+                                ) ?>
+                            </td>
+
+                            <td>
+
+                                <span
+                                    class="status
+                                    <?= e(
+                                        statusClass($activityStatus)
+                                    ) ?>"
+                                >
+                                    <?= e($activityStatus) ?>
+                                </span>
+
+                            </td>
+
+                            <td>
+                                <?= e(
+                                    $activity['activity_date']
+                                    ?? '—'
+                                ) ?>
+                            </td>
+
                         </tr>
-                    </thead>
 
-                    <tbody>
-                        <?php if ($recentActivitiesResult && $recentActivitiesResult->num_rows > 0): ?>
-                            <?php while ($activity = $recentActivitiesResult->fetch_assoc()): ?>
-                                <?php $activityStatus = $activity['status'] ?? 'Pending'; ?>
+                    <?php endwhile; ?>
 
-                                <tr>
-                                    <td>#<?= e($activity['activity_id']) ?></td>
+                <?php else: ?>
 
-                                    <td>
-                                        <span class="person-name">
-                                            <?= e($activity['user_name'] ?? 'N/A') ?>
-                                        </span>
-                                    </td>
+                    <tr>
+                        <td colspan="6" class="empty-state">
+                            No activity history found.
+                        </td>
+                    </tr>
 
-                                    <td>
-                                        <?= e($activity['collector_name'] ?? 'Unassigned') ?>
-                                    </td>
+                <?php endif; ?>
 
-                                    <td>
-                                        <?= e($activity['scrap_type'] ?? 'General') ?>
-                                    </td>
+                </tbody>
 
-                                    <td>
-                                        <span class="status <?= statusClass($activityStatus) ?>">
-                                            <?= e($activityStatus) ?>
-                                        </span>
-                                    </td>
+            </table>
 
-                                    <td>
-                                        <?= e($activity['activity_date'] ?? '—') ?>
-                                    </td>
-                                </tr>
-                            <?php endwhile; ?>
-                        <?php else: ?>
-                            <tr>
-                                <td colspan="6" class="empty-state">
-                                    No activity history found.
-                                </td>
-                            </tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-        </section>
+        </div>
 
-    </main>
+    </section>
 
-    <script>
-        const green = '#16a34a';
-        const greenLight = '#86efac';
-        const orange = '#d97706';
-        const red = '#dc2626';
-        const gridColor = '#e6ece8';
-        const textColor = '#718078';
+</main>
 
-        const activityLabels = <?= json_encode($monthlyLabels) ?>;
-        const activityValues = <?= json_encode($monthlyValues) ?>;
+<script>
 
-        new Chart(document.getElementById('activityChart'), {
-            type: 'bar',
-            data: {
-                labels: activityLabels,
-                datasets: [{
+const green = '#16a34a';
+const orange = '#d97706';
+const red = '#dc2626';
+const gridColor = '#e6ece8';
+const textColor = '#718078';
+
+const activityLabels =
+    <?= json_encode($monthlyLabels) ?>;
+
+const activityValues =
+    <?= json_encode($monthlyValues) ?>;
+
+new Chart(
+    document.getElementById('activityChart'),
+    {
+        type: 'bar',
+
+        data: {
+            labels: activityLabels,
+
+            datasets: [
+                {
                     label: 'Pickup requests',
                     data: activityValues,
                     backgroundColor: green,
                     borderRadius: 9,
                     borderSkipped: false,
                     maxBarThickness: 42
-                }]
+                }
+            ]
+        },
+
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+
+            plugins: {
+                legend: {
+                    display: false
+                },
+
+                tooltip: {
+                    backgroundColor: '#17221b',
+                    padding: 12,
+                    displayColors: false
+                }
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
+
+            scales: {
+                x: {
+                    grid: {
                         display: false
                     },
-                    tooltip: {
-                        backgroundColor: '#17221b',
-                        padding: 12,
-                        displayColors: false
+
+                    ticks: {
+                        color: textColor
                     }
                 },
-                scales: {
-                    x: {
-                        grid: {
-                            display: false
-                        },
-                        ticks: {
-                            color: textColor
-                        }
+
+                y: {
+                    beginAtZero: true,
+
+                    ticks: {
+                        precision: 0,
+                        color: textColor
                     },
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            precision: 0,
-                            color: textColor
-                        },
-                        grid: {
-                            color: gridColor
-                        }
+
+                    grid: {
+                        color: gridColor
                     }
                 }
             }
-        });
+        }
+    }
+);
 
-        new Chart(document.getElementById('impactChart'), {
-            type: 'doughnut',
-            data: {
-                labels: ['Completed', 'Pending', 'Cancelled'],
-                datasets: [{
+new Chart(
+    document.getElementById('impactChart'),
+    {
+        type: 'doughnut',
+
+        data: {
+            labels: [
+                'Completed',
+                'Pending',
+                'Cancelled'
+            ],
+
+            datasets: [
+                {
                     data: [
                         <?= $completedPickups ?>,
                         <?= $pendingPickups ?>,
                         <?= $cancelledPickups ?>
                     ],
-                    backgroundColor: [green, orange, red],
+
+                    backgroundColor: [
+                        green,
+                        orange,
+                        red
+                    ],
+
                     borderWidth: 0,
                     hoverOffset: 6
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '72%',
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        backgroundColor: '#17221b',
-                        padding: 12
-                    }
+                }
+            ]
+        },
+
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '72%',
+
+            plugins: {
+                legend: {
+                    display: false
+                },
+
+                tooltip: {
+                    backgroundColor: '#17221b',
+                    padding: 12
                 }
             }
-        });
-    </script>
+        }
+    }
+);
+
+</script>
+
 </body>
 </html>

@@ -42,14 +42,20 @@ $currentPage = basename($_SERVER['PHP_SELF']);
             <i class="ri-recycle-line"></i>
             <span>Scrap Requests</span>
         </a>
-
+         <a
+            href="scrapcollectoract.php"
+            class="<?php echo $currentPage === 'scrapcollectoract.php' ? 'active' : ''; ?>"
+        >
+            <i class="ri-truck-line"></i>
+            <span>Scrap Collector Activity</span>
+        </a>
 
         <a
             href="approve_collectors.php"
             class="<?php echo $currentPage === 'approve_collectors.php' ? 'active' : ''; ?>"
         >
             <i class="ri-truck-line"></i>
-            <span>Collectors</span>
+            <span>Scrap Collectors</span>
         </a>
 
 

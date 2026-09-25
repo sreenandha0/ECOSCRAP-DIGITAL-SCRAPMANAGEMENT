@@ -1651,6 +1651,10 @@ if ($collectorStmt) {
                 </a>
 
             </div>
+            <a href="scrapcollectoract.php">
+    <i class="ri-truck-line"></i>
+    <span>Scrap Collector Activity</span>
+</a>
 
 
             <div class="table-container">

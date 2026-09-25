@@ -1092,101 +1092,80 @@ foreach ($users as $user) {
             }
 
         }
+        .header-title {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.back-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    margin-bottom: 14px;
+    padding: 9px 14px;
+    color: #15803d;
+    background: #f0fdf4;
+    border: 1px solid #bbebc8;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: all .2s ease;
+}
+
+.back-button i {
+    font-size: 15px;
+}
+
+.back-button:hover {
+    color: #ffffff;
+    background: #16a34a;
+    border-color: #16a34a;
+    transform: translateX(-2px);
+}
 
     </style>
 
 </head>
+<header class="page-header">
 
-<body>
-
-    <div class="ambient-blur blur-one"></div>
-    <div class="ambient-blur blur-two"></div>
-
-
-    <!-- =================================================
-         TOP NAVIGATION
-    ================================================= -->
-
-    <nav class="top-navbar">
-
-        <div class="nav-brand">
-            <i class="bi bi-recycle"></i>
-            EcoScrap Admin
-        </div>
-
+    <div class="header-title">
 
         <a
-            href="dashboard.php"
-            class="btn-back"
+            href="javascript:history.back()"
+            class="back-button"
         >
             <i class="bi bi-arrow-left"></i>
-            <span>Back to Dashboard</span>
+            Back
         </a>
 
-    </nav>
+        <h1>
+            Manage Users
+        </h1>
 
+        <p>
+            View, manage, and monitor all registered EcoScrap accounts.
+        </p>
 
-    <main class="workspace-container">
+    </div>
 
+    <div class="search-box">
 
-        <!-- =================================================
-             FLASH MESSAGE
-        ================================================= -->
+        <i class="bi bi-search"></i>
 
-        <?php if ($message !== ''): ?>
+        <input
+            type="search"
+            id="searchInput"
+            class="search-input"
+            placeholder="Search name, email, phone, or district..."
+            autocomplete="off"
+        >
 
-            <div
-                class="alert alert-<?= e($messageType) ?> alert-dismissible fade show mb-4"
-                role="alert"
-            >
-                <i class="bi bi-info-circle-fill me-2"></i>
-                <?= e($message) ?>
+    </div>
 
-                <button
-                    type="button"
-                    class="btn-close"
-                    data-bs-dismiss="alert"
-                    aria-label="Close"
-                ></button>
-            </div>
-
-        <?php endif; ?>
-
-
-        <!-- =================================================
-             PAGE HEADER
-        ================================================= -->
-
-        <header class="page-header">
-
-            <div class="header-title">
-
-                <h1>
-                    Manage Users
-                </h1>
-
-                <p>
-                    View, manage, and monitor all registered EcoScrap accounts.
-                </p>
-
-            </div>
-
-
-            <div class="search-box">
-
-                <i class="bi bi-search"></i>
-
-                <input
-                    type="search"
-                    id="searchInput"
-                    class="search-input"
-                    placeholder="Search name, email, phone, or district..."
-                    autocomplete="off"
-                >
-
-            </div>
-
-        </header>
+</header>
 
 
         <!-- =================================================
